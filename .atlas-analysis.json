@@ -1,0 +1,132 @@
+{
+  "projectType": "general",
+  "projectName": "Ladybird Browser",
+  "projectDescription": "A truly independent web browser using a novel engine based on web standards",
+  "theme": "aspen",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4338ca",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "faq"
+            ]
+          },
+          {
+            "group": "Building & Running",
+            "pages": [
+              "building/build-instructions",
+              "building/advanced-build",
+              "building/troubleshooting",
+              "building/profiling"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/process-architecture",
+              "architecture/event-loop",
+              "architecture/libweb-overview"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/contributing",
+              "development/getting-started",
+              "development/coding-style",
+              "development/patterns",
+              "development/testing"
+            ]
+          },
+          {
+            "group": "Browser Engine",
+            "pages": [
+              "engine/libweb",
+              "engine/libjs",
+              "engine/libwasm",
+              "engine/css",
+              "engine/dom"
+            ]
+          },
+          {
+            "group": "Core Libraries",
+            "pages": [
+              "libraries/ak",
+              "libraries/libgfx",
+              "libraries/libcore",
+              "libraries/libipc",
+              "libraries/libhttp"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Services",
+            "pages": [
+              "reference/services/webcontent",
+              "reference/services/request-server",
+              "reference/services/image-decoder",
+              "reference/services/webdriver"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "reference/utilities/overview",
+              "reference/utilities/js",
+              "reference/utilities/wasm"
+            ]
+          },
+          {
+            "group": "Editor Configuration",
+            "pages": [
+              "reference/editors/vscode",
+              "reference/editors/clion",
+              "reference/editors/vim",
+              "reference/editors/emacs"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-process architecture with sandboxed WebContent processes",
+    "LibWeb: Custom web rendering engine built from scratch",
+    "LibJS: Independent JavaScript engine with spec-compliant implementation",
+    "LibWasm: WebAssembly implementation",
+    "AK: Custom standard library with optimized containers and utilities",
+    "Cross-platform support (Linux, macOS, Windows via WSL2)",
+    "Security-focused design with process isolation",
+    "Standards-compliant implementation following WHATWG/W3C specifications"
+  ],
+  "publicApiSurface": [
+    "LibWeb::HTML",
+    "LibWeb::CSS",
+    "LibWeb::DOM",
+    "LibJS::Runtime",
+    "LibJS::Bytecode",
+    "LibWasm::Module",
+    "AK::String",
+    "AK::Vector",
+    "AK::HashMap",
+    "LibGfx::Bitmap",
+    "LibCore::EventLoop",
+    "LibIPC::Connection",
+    "WebContent::PageHost",
+    "RequestServer::Request",
+    "ImageDecoder::Service"
+  ]
+}
