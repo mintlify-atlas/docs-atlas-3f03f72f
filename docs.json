@@ -90,7 +90,8 @@
               "reference/services/webcontent",
               "reference/services/request-server",
               "reference/services/image-decoder",
-              "reference/services/webdriver"
+              "reference/services/webdriver",
+              "reference/services/webworker"
             ]
           },
           {
@@ -98,7 +99,10 @@
             "pages": [
               "reference/utilities/overview",
               "reference/utilities/js",
-              "reference/utilities/wasm"
+              "reference/utilities/wasm",
+              "reference/utilities/dns",
+              "reference/utilities/image",
+              "reference/utilities/xml"
             ]
           },
           {

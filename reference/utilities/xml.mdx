@@ -1,0 +1,138 @@
+---
+title: xml utility
+description: XML parsing and pretty-printing tool with syntax highlighting
+---
+
+The `xml` utility is a command-line tool for parsing, validating, and pretty-printing XML documents. It includes syntax highlighting support for terminal output.
+
+## Usage
+
+```bash
+xml [options] <file or URL>
+```
+
+## Options
+
+- `--color, -c` - Enable syntax highlighting
+- `--only-contents, -o` - Print only the content without XML tags
+
+## Features
+
+### XML parsing and validation
+
+Parse and validate XML documents:
+
+```bash
+xml document.xml
+```
+
+The tool will report any parsing errors with line and column information.
+
+### Pretty printing
+
+Format XML with proper indentation:
+
+```bash
+xml document.xml
+```
+
+### Syntax highlighting
+
+Enable colored output for better readability:
+
+```bash
+xml --color document.xml
+```
+
+Color scheme:
+- **Tags** - Bold yellow
+- **Attribute names** - Blue
+- **Attribute values** - Green
+- **Comments** - Italic gray
+- **Processing instructions** - Bold beige
+- **Text content** - Default color
+- **Doctype declarations** - Bold beige
+- **Keywords** - Green
+
+### Content extraction
+
+Extract only text content, stripping all XML tags:
+
+```bash
+xml --only-contents document.xml
+```
+
+## Input sources
+
+### Local files
+
+```bash
+xml /path/to/document.xml
+```
+
+### URLs
+
+The utility can fetch and parse XML from URLs:
+
+```bash
+xml https://example.com/feed.xml
+```
+
+### Standard input
+
+```bash
+cat document.xml | xml -
+```
+
+## Examples
+
+### Parse and display XML
+
+```bash
+xml document.xml
+```
+
+### Pretty print with color
+
+```bash
+xml --color sitemap.xml
+```
+
+### Extract text content only
+
+```bash
+xml --only-contents --color article.xml
+```
+
+### Validate XML from URL
+
+```bash
+xml https://example.com/rss.xml
+```
+
+## XML features supported
+
+- Elements and attributes
+- Text nodes
+- Comments
+- Processing instructions
+- DOCTYPE declarations
+- CDATA sections
+- Namespaces
+
+## Implementation details
+
+The XML utility is built on:
+- **LibXML**: XML parsing and DOM implementation
+- **LibURL**: URL parsing for remote documents
+- **LibCore**: File I/O and argument parsing
+
+Source: `~/workspace/source/Utilities/xml.cpp`
+
+<Info>
+The tool automatically handles both local files and remote URLs based on the input format.
+</Info>
+
+<Note>
+When using `--only-contents`, the output includes only text nodes, with comments and processing instructions stripped.
+</Note>

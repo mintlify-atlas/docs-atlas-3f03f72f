@@ -1,0 +1,104 @@
+---
+title: dns utility
+description: Command-line DNS query tool with TLS and DNSSEC support
+---
+
+The `dns` utility is a command-line tool for querying DNS servers directly. It supports both UDP and TLS connections, DNSSEC validation, and querying multiple resource record types.
+
+## Usage
+
+```bash
+dns [options] <rr,rr@name> [<rr,rr@name>...]
+```
+
+## Options
+
+- `--server, -s <addr>` - The address of the DNS server to query (required)
+- `--ca-certs, -C <file>` - Path to a root CA certificate file for TLS
+- `--tls` - Use TLS to connect to the server (uses port 853)
+- `--dnssec` - Validate DNSSEC records locally
+
+## Query format
+
+Queries can be specified in two formats:
+
+1. **Simple format**: `<name>` - Queries ANY record type for the given name
+2. **Explicit format**: `<rr,rr,...>@<name>` - Queries specific record types
+
+### Supported record types
+
+- `A` - IPv4 address
+- `AAAA` - IPv6 address
+- `CNAME` - Canonical name
+- `MX` - Mail exchange
+- `TXT` - Text records
+- `NS` - Name server
+- `SOA` - Start of authority
+- `PTR` - Pointer record
+- `SRV` - Service locator
+- `ANY` - All available records
+
+## Examples
+
+### Basic DNS query
+
+Query all records for a domain:
+
+```bash
+dns --server 8.8.8.8 example.com
+```
+
+### Query specific record types
+
+Query A and AAAA records:
+
+```bash
+dns --server 8.8.8.8 A,AAAA@example.com
+```
+
+### DNS over TLS
+
+Query using DNS-over-TLS (DoT):
+
+```bash
+dns --server 1.1.1.1 --tls example.com
+```
+
+With custom CA certificate:
+
+```bash
+dns --server 1.1.1.1 --tls --ca-certs /path/to/ca-cert.pem example.com
+```
+
+### DNSSEC validation
+
+Validate DNSSEC signatures:
+
+```bash
+dns --server 8.8.8.8 --dnssec example.com
+```
+
+### Multiple queries
+
+Query multiple domains in one command:
+
+```bash
+dns --server 8.8.8.8 example.com A@google.com MX@github.com
+```
+
+## Implementation details
+
+The DNS utility is built on:
+- **LibDNS**: DNS protocol implementation
+- **LibCore**: Event loop and socket handling
+- **LibTLS**: TLS support for DNS-over-TLS
+
+Source: `~/workspace/source/Utilities/dns.cpp`
+
+<Note>
+When using TLS, the default port is 853. For UDP connections, port 53 is used.
+</Note>
+
+<Warning>
+DNSSEC validation is performed locally and requires DNSSEC-enabled DNS servers.
+</Warning>

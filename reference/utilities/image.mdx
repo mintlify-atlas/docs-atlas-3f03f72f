@@ -1,0 +1,143 @@
+---
+title: image utility
+description: Image format conversion and manipulation tool
+---
+
+The `image` utility is a command-line tool for converting between image formats, manipulating images, and extracting metadata. It supports multiple image formats and provides various transformation operations.
+
+## Supported formats
+
+### Input formats
+
+- **PNG** - Portable Network Graphics
+- **JPEG** - Joint Photographic Experts Group
+- **GIF** - Graphics Interchange Format
+- **BMP** - Bitmap Image File
+- **WebP** - WebP image format
+- **ICO** - Icon format
+- **TIFF** - Tagged Image File Format
+- **PBM/PGM/PPM** - Portable Anymap formats
+
+### Output formats
+
+- **PNG** - With compression level control
+- **JPEG** - With quality control
+- **BMP** - Bitmap output
+- **WebP** - Lossy and lossless modes
+
+## Usage
+
+```bash
+image [options] <input-file> <output-file>
+```
+
+## Common operations
+
+### Format conversion
+
+Convert between formats by specifying different input and output extensions:
+
+```bash
+# Convert PNG to JPEG
+image input.png output.jpg
+
+# Convert JPEG to WebP
+image input.jpg output.webp
+
+# Convert any format to PNG
+image input.gif output.png
+```
+
+### Image transformations
+
+#### Cropping
+
+Crop image to specific rectangle:
+
+```bash
+image --crop <x>,<y>,<width>,<height> input.png output.png
+```
+
+#### Strip alpha channel
+
+Remove transparency:
+
+```bash
+image --strip-alpha input.png output.png
+```
+
+#### Move alpha to RGB
+
+Convert alpha channel to grayscale RGB:
+
+```bash
+image --move-alpha-to-rgb input.png output.png
+```
+
+### CMYK operations
+
+For CMYK images (typically from JPEG files):
+
+```bash
+# Invert CMYK values
+image --invert-cmyk input.jpg output.jpg
+```
+
+### Quality and compression
+
+#### JPEG quality
+
+```bash
+image --quality 85 input.png output.jpg
+```
+
+#### PNG compression
+
+```bash
+image --compression-level 9 input.bmp output.png
+```
+
+#### WebP encoding
+
+```bash
+# Lossy WebP
+image --quality 80 input.png output.webp
+
+# Lossless WebP
+image --lossless input.png output.webp
+```
+
+## Frame extraction
+
+Extract specific frame from animated images:
+
+```bash
+image --frame-index 0 animated.gif frame-0.png
+```
+
+## Metadata operations
+
+### ICC profile handling
+
+The utility preserves ICC color profiles when converting between formats that support them.
+
+## Implementation details
+
+The image utility uses:
+- **LibGfx**: Core image decoding and encoding
+- **ImageDecoder**: Format-specific decoders
+- **ImageWriter**: Format-specific encoders (PNG, JPEG, BMP, WebP)
+
+Source: `~/workspace/source/Utilities/image.cpp`
+
+<Info>
+The utility automatically detects the input format based on file content, not extension.
+</Info>
+
+<Note>
+CMYK operations are only available for images with CMYK color space (typically JPEG files).
+</Note>
+
+<Warning>
+Some operations like cropping are not yet supported for CMYK bitmaps.
+</Warning>

@@ -1,0 +1,198 @@
+---
+title: WebWorker service
+description: Web Workers implementation for concurrent JavaScript execution
+---
+
+The WebWorker service provides isolated execution contexts for running JavaScript code concurrently with the main web page. It implements the Web Workers API, enabling multi-threaded web applications.
+
+## Overview
+
+WebWorker is a separate process that hosts JavaScript workers, providing:
+
+- **Concurrent execution**: Run scripts in parallel with the main thread
+- **Isolation**: Workers run in their own global scope
+- **Message passing**: Communication via structured clone algorithm
+- **Standards compliance**: Implements the WHATWG Web Workers specification
+
+## Architecture
+
+### Process model
+
+WebWorker runs as a separate service process, similar to WebContent:
+
+```
+Browser Process
+    |
+    +-- WebContent Process (main page)
+    |
+    +-- WebWorker Process (worker scripts)
+```
+
+Each worker runs in its own isolated environment within the WebWorker process.
+
+### Key components
+
+#### WorkerHost
+
+Manages the lifecycle of individual workers:
+- Script loading and execution
+- Global scope management
+- Message queue handling
+- Error reporting
+
+Source: `Services/WebWorker/WorkerHost.cpp`
+
+#### PageHost
+
+Coordinates between the main page and workers:
+- Worker creation and termination
+- Message routing
+- Resource management
+
+Source: `Services/WebWorker/PageHost.cpp`
+
+#### ConnectionFromClient
+
+Handles IPC communication with the browser:
+- Worker lifecycle commands
+- Message passing between threads
+- Event dispatching
+
+Source: `Services/WebWorker/ConnectionFromClient.cpp`
+
+## Worker types
+
+### Dedicated Workers
+
+Workers tied to a single page:
+
+```javascript
+const worker = new Worker('worker.js');
+worker.postMessage({ task: 'process', data: [1, 2, 3] });
+worker.onmessage = (e) => console.log('Result:', e.data);
+```
+
+### Shared Workers
+
+Workers accessible from multiple browsing contexts:
+
+```javascript
+const worker = new SharedWorker('shared-worker.js');
+worker.port.postMessage({ command: 'init' });
+worker.port.onmessage = (e) => console.log('Shared result:', e.data);
+```
+
+## Worker features
+
+### Global scope
+
+Workers have access to:
+- `self` - Worker global scope
+- `postMessage()` - Send messages to parent
+- `importScripts()` - Load additional scripts
+- `setTimeout()`, `setInterval()` - Timers
+- `fetch()` - Network requests
+- `XMLHttpRequest` - HTTP requests
+
+### Restrictions
+
+Workers cannot access:
+- DOM elements
+- `window` object
+- `document` object
+- `parent` object
+
+## Communication
+
+### Message passing
+
+Structured clone algorithm for data transfer:
+
+```javascript
+// Main thread
+worker.postMessage({
+  array: new Uint8Array([1, 2, 3]),
+  nested: { value: 42 }
+});
+
+// Worker
+self.onmessage = (e) => {
+  const { array, nested } = e.data;
+  // Process data
+  self.postMessage({ result: nested.value });
+};
+```
+
+### Transferable objects
+
+Transfer ownership of objects for zero-copy performance:
+
+```javascript
+const buffer = new ArrayBuffer(1024);
+worker.postMessage({ buffer }, [buffer]);
+// buffer is now neutered in main thread
+```
+
+## Error handling
+
+### Worker errors
+
+Errors in workers are reported to the main thread:
+
+```javascript
+worker.onerror = (e) => {
+  console.error('Worker error:', e.message);
+  console.error('File:', e.filename, 'Line:', e.lineno);
+};
+```
+
+### Unhandled rejections
+
+```javascript
+worker.onunhandledrejection = (e) => {
+  console.error('Unhandled promise rejection:', e.reason);
+};
+```
+
+## Lifecycle
+
+### Worker creation
+
+1. Browser creates worker request
+2. WebWorker process spawned (if not running)
+3. Worker script loaded and parsed
+4. Global scope initialized
+5. Script executed
+
+### Worker termination
+
+```javascript
+// Graceful termination from main thread
+worker.terminate();
+
+// Self-termination from worker
+self.close();
+```
+
+## Performance considerations
+
+- Workers have startup overhead (script loading, parsing)
+- Message passing involves serialization/deserialization
+- Use transferable objects for large data
+- Consider worker pools for frequent operations
+
+## Implementation status
+
+<Info>
+WebWorker support is under active development. Some advanced features may not be fully implemented.
+</Info>
+
+<Note>
+Workers run in a separate process for security and stability, similar to WebContent processes.
+</Note>
+
+## See also
+
+- [WebContent service](/reference/services/webcontent) - Main rendering process
+- [LibJS](/engine/libjs) - JavaScript engine
+- [Process architecture](/architecture/process-architecture) - Multi-process model
