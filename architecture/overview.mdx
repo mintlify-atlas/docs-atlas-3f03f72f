@@ -1,0 +1,116 @@
+---
+title: Architecture overview
+description: Understanding Ladybird's multi-process architecture and core system design
+---
+
+Ladybird Browser uses a sophisticated multi-process architecture designed to improve stability, security, and performance when handling arbitrary web content. This page provides an overview of the key architectural components and design principles.
+
+<Note>
+Parts of this architecture are aspirational - implementation is actively underway to fully realize the design described here.
+</Note>
+
+## Core architecture principles
+
+The Ladybird architecture is built on several key principles:
+
+- **Process isolation**: Separate processes for different concerns (rendering, networking, decoding)
+- **Aggressive sandboxing**: All processes except the main Browser run with restricted permissions
+- **Unprivileged execution**: Helper processes run as separate users from the desktop user
+- **Event-driven design**: LibCore's EventLoop system handles concurrent tasks cooperatively
+
+## Multi-process architecture
+
+Every instance of the Browser application can have one or more tabs open. Each tab spawns a unique WebContent service process to handle rendering and execution.
+
+<CardGroup cols={3}>
+  <Card title="Browser process" icon="window">
+    Main UI process that manages tabs and user interaction
+  </Card>
+  <Card title="WebContent process" icon="code">
+    Hosts LibWeb rendering engine and LibJS JavaScript engine
+  </Card>
+  <Card title="RequestServer process" icon="network-wired">
+    Handles all network requests via HTTP/HTTPS protocols
+  </Card>
+  <Card title="ImageDecoder process" icon="image">
+    Decodes images in isolated, sandboxed processes
+  </Card>
+</CardGroup>
+
+## Security model
+
+All processes are aggressively sandboxed using `pledge()` and `unveil()` mechanisms. Furthermore, all processes except Browser run as an unprivileged user, separate from the primary logged-in desktop user.
+
+<Warning>
+The sandboxing mechanisms are critical for security when processing untrusted web content.
+</Warning>
+
+## Component overview
+
+The architecture separates concerns across multiple specialized components:
+
+### LibWeb rendering engine
+
+LibWeb is the core HTML/CSS rendering engine that powers web content display. It implements:
+
+- HTML parsing and DOM tree construction
+- CSS parsing and style computation
+- Layout tree generation and positioning
+- Paint tree creation and rendering
+
+See the [LibWeb rendering pipeline](/architecture/libweb-overview) for detailed information.
+
+### LibJS JavaScript engine
+
+LibJS provides JavaScript execution capabilities within the WebContent process. It features:
+
+- JavaScript parsing and AST generation
+- Bytecode interpreter
+- Garbage collection (mark & sweep)
+
+### LibCore event system
+
+LibCore provides the foundational event loop system used throughout Ladybird. The event loop handles:
+
+- POSIX signals
+- Timer events
+- File descriptor notifications
+- Deferred callbacks
+
+Learn more about the [event loop architecture](/architecture/event-loop).
+
+## Process communication
+
+Processes communicate using IPC (Inter-Process Communication) protocols:
+
+- **Browser ↔ WebContent**: Passes input events and receives painted bitmaps
+- **WebContent ↔ RequestServer**: Makes network requests for resources
+- **WebContent ↔ ImageDecoder**: Sends encoded data and receives decoded bitmaps
+
+<Info>
+The `OutOfProcessWebView` widget in the Browser process manages spawning and communication with all helper processes.
+</Info>
+
+## Process spawning
+
+Helper processes are spawned on-demand through Unix domain sockets:
+
+- **WebContent**: Spawned by connecting to `/tmp/session/%sid/portal/webcontent`
+- **RequestServer**: Spawned by WebContent as needed for network operations
+- **ImageDecoder**: Spawned by WebContent for each image decoding task
+
+The socket at `/tmp/session/%sid/portal/webcontent` is managed by SystemServer, which spawns a new WebContent instance for every connection.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Process architecture" href="/architecture/process-architecture" icon="diagram-project">
+    Deep dive into multi-process design and IPC protocols
+  </Card>
+  <Card title="Event loop" href="/architecture/event-loop" icon="rotate">
+    Learn how LibCore's event system works
+  </Card>
+  <Card title="LibWeb pipeline" href="/architecture/libweb-overview" icon="browser">
+    Explore the rendering pipeline from loading to painting
+  </Card>
+</CardGroup>

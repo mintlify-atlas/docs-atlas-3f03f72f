@@ -1,0 +1,183 @@
+---
+title: Frequently asked questions
+description: Common questions about Ladybird browser and the Ladybird Browser Initiative
+---
+
+## About the project
+
+### What does 'independent' mean if you're including third party dependencies?
+
+Independent means:
+
+- We implement the web platform standards ourselves: Ladybird is not a Blink/Chromium shell, not a WebKit port, not a Firefox fork
+- We don't take money from anyone with strings attached
+
+<Note>
+We do use some third-party libraries (e.g., Harfbuzz, Skia, simdutf, libcurl) for specific functionality, but the core browser engine is built from scratch.
+</Note>
+
+### What makes Ladybird different?
+
+The [Ladybird Browser Initiative](https://ladybird.org/) is different in several key ways:
+
+- **Fully independent**: Written from scratch, using no code from any other browser engine
+- **Singular focus**: Dedicated solely to building a new browser engine and browser
+- **No monetization**: Will never take funding from default search deals or any other forms of user monetization, ever
+
+### Where did Ladybird come from?
+
+Here's a short timeline:
+
+- **2019 June**: Work on what eventually became Ladybird started as _LibHTML_ — the beginnings of an HTML viewer for [SerenityOS](https://github.com/SerenityOS/serenity) — with a commit titled "LibHTML: Start working on a simple HTML library"
+
+- **2022 July**: Renamed _Ladybird_ by Andreas in ["Let's make a Linux GUI for the SerenityOS browser"](https://youtu.be/X38MTKHt3_I) live-coding video
+
+- **2022 September**: Spun off from SerenityOS to separate project: ["A new cross-platform browser project"](https://awesomekling.substack.com/p/ladybird-a-new-cross-platform-browser-project) announcement
+
+- **2024 June**: ["I'm forking Ladybird and stepping down as SerenityOS BDFL"](https://awesomekling.substack.com/p/forking-ladybird-and-stepping-down-serenityos) announcement from Andreas
+
+- **2024 July**: [Ladybird Browser Initiative](https://ladybird.org/posts/announcement/) launched by Andreas and GitHub co-founder Chris Wanstrath (defunkt)
+
+<Tip>
+For full details, see the [Ladybird: A new cross-platform browser project](https://awesomekling.substack.com/p/ladybird-a-new-cross-platform-browser-project) announcement.
+</Tip>
+
+## Using Ladybird
+
+### Is [some particular site] usable in Ladybird?
+
+Ladybird is pre-alpha software you have to build from the sources yourself in order to even try. That said, it's getting better day-by-day at handling some of the most widely-used sites on the web. 
+
+You may find that a given site among the sites you visit daily is already usable in Ladybird. Or you may not. The only way you can really know at this point is to follow the [build instructions](/quickstart) to build Ladybird and try it yourself.
+
+### How do I run this thing?
+
+Simple! Just refer to the [quick start guide](/quickstart).
+
+### I did a git pull and now the build is broken! What do I do?
+
+If it builds on CI, it should build for you too. You may need to:
+
+<Steps>
+  <Step title="Rebuild the toolchain">
+    Try rebuilding the toolchain first
+  </Step>
+  <Step title="Use a clean repository">
+    If that doesn't help, try building with a clean repository
+  </Step>
+  <Step title="Ask for help">
+    If you can't figure out what to do, ask in the `#build-problems` channel on [Discord](https://discord.gg/nvfjVJ4Svh)
+  </Step>
+</Steps>
+
+## Platform support
+
+### Windows support when?
+
+There are very few Windows developers contributing to the project. As such, maintaining a native Windows port would be a lot of effort that distracts from building out the web platform standards in a reasonable amount of time.
+
+After we have a solid foundation, we may consider a Windows port, but it's not a priority. In the meantime, Windows developers can use other tools such as WSL2 to work on Ladybird.
+
+## Features and roadmap
+
+### Will Ladybird support `$THING`?
+
+Eventually, probably, if there's a Web Spec for it!
+
+### When will you implement `$THING`?
+
+Maybe someday. Maybe never. If you want to see something happen, you can do it yourself!
+
+### Will you have a built-in ad blocker?
+
+We have a rudimentary built-in ad blocker, and we already have open issues about supporting uBlock via extensions.
+
+### Is there a release roadmap?
+
+- **2026**: Alpha release (daily driver for developers and early adopters) for Linux and macOS
+- **2027**: Beta release; downloadable app for Linux and macOS
+- **2028**: Stable release for general use
+
+## Project goals and culture
+
+### What are the project goals?
+
+- Eventually give everybody the choice of a whole new browser they can use for their daily browsing
+- Prove it is in fact possible to build a completely new browser, by implementing from the WHATWG/W3C/etc. specs
+- Have a lot of real fun together actually doing it
+- Prove that developing an engine doesn't take hundreds of engineers — and not anything close to even just a hundred
+- Further help de-mystify browser engineering and make it a standard thing to learn (hat tip: https://browser.engineering/)
+
+### What are some of the project coding conventions?
+
+- Implement web-platform features exactly according to the actual steps in spec algorithms
+- Abundant code comments with verbatim spec text copy/pasted in — showing exactly what's being implemented
+- Additional _"AD-HOC:"_ comment convention to mark code that doesn't map to any spec requirements
+- Class/file names tend to closely match actual current spec terms; e.g., `Navigable.h`, `Transferable.h`
+- ["Critically reading standards and reporting what is wrong"](https://matrixlogs.bakkot.com/WHATWG/2024-08-23#L10)
+
+## Technical details
+
+### What is the basic architecture?
+
+Ladybird uses a multi-process architecture:
+
+- **UI process**: Main browser interface
+- **ImageDecoder process**: Decodes images out of process for robustness against malicious content
+- **RequestServer process**: Handles network connections out of process
+- **WebContent processes**: Each tab has its own renderer process, sandboxed from the rest of the system
+
+Core components include:
+
+- **LibWeb**: Core web-rendering engine (HTML, CSS, Events, DOM, APIs)
+- **LibJS**: JavaScript engine written from scratch (currently JIT-less)
+- **LibWasm**: WebAssembly implementation written from scratch
+- **AK**: Ladybird standard library/abstractions (asserts, smart pointers, strings, numbers, etc.)
+
+### How does Ladybird's code size compare to other browsers?
+
+- Roughly same size (number of lines of code) as Servo
+- About 1/15th as many lines of C++ code as WebKit
+- About 1/20th as many lines as C++ code Gecko
+- About 1/50th as many lines as C++ code Chromium
+
+### What is the level of standards support?
+
+[wpt.fyi/results?product=ladybird](https://wpt.fyi/results/?product=ladybird) has current test results for all WPT tests.
+
+<Note>
+Performance optimizing is not yet a super-high priority, but performance-boosting changes are regularly getting made.
+</Note>
+
+## Funding and contribution
+
+### What about funding?
+
+- Funded _entirely_ through donations and sponsorships
+- [Donations of any amount](https://donorbox.org/ladybird): $10, $50, $100, etc.
+- Sponsorship opportunities: Platinum $100,000 • Gold $50,000 • Silver $10,000 • Bronze $5,000 • Copper $1,000
+- Ladybird Browser Initiative was announced/seeded with a [1 million dollar donation](https://twitter.com/defunkt/status/1807779408092234134) from Chris Wanstrath (defunkt) and his family
+
+### How can I get involved?
+
+Join [our Discord server](https://discord.gg/nvfjVJ4Svh) to participate in development discussion.
+
+Please read the Getting started contributing guide if you plan to contribute to Ladybird for the first time.
+
+## Resources
+
+### Are there video/audio announcements and interviews?
+
+- Ladybird Browser Initiative [announcement video](https://www.youtube.com/watch?v=k9edTqPMX_k) from defunkt explaining the project goals (July 2024)
+- [Why we need Ladybird](https://changelog.com/podcast/604#t=5:08): _Changelog_ podcast interview with Andreas and defunkt (August 2024)
+- [Eron Wolf announcement grant of $200K](https://youtu.be/p6k9qcRpW_k) from FUTO to the project (August 2024)
+- [Eron Wolf interview with Andreas](https://youtu.be/4xhaAAcKLtI) (August 2024)
+
+### Where can I watch videos related to the project?
+
+- Ladybird [YouTube channel](https://www.youtube.com/@LadybirdBrowser): Monthly Ladybird project updates from Andreas
+- Andreas' [YouTube channel](https://www.youtube.com/@awesomekling): 1000+ videos from 6+ years, including "car talk" and OS/browser "hacking" (live-coding) videos
+
+### Is there background to help me understand what a browser engine is?
+
+[Understanding the role of browser engines](https://assets.publishing.service.gov.uk/media/61b86737e90e07043c35f5be/Appendix_F_-_Understanding_the_role_of_browser_engines.pdf) from the UK Competition and Markets Authority Mobile ecosystems market study provides excellent context.

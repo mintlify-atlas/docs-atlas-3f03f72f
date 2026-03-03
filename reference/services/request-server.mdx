@@ -1,0 +1,280 @@
+---
+title: RequestServer service
+description: Network request handling service that manages HTTP, HTTPS, and WebSocket connections
+---
+
+RequestServer is a dedicated service process that handles all network operations for Ladybird. Each WebContent process gets its own RequestServer instance to perform uploads and downloads on its behalf.
+
+## Overview
+
+RequestServer provides network access to WebContent processes while maintaining security isolation. It handles:
+
+- HTTP and HTTPS requests
+- WebSocket connections
+- DNS resolution through LookupServer
+- HTTP disk caching
+- TLS/SSL certificate management
+- Resource substitution for testing
+
+<Info>
+WebContent processes cannot directly access the network. All network operations must go through RequestServer for security.
+</Info>
+
+## Architecture
+
+RequestServer acts as a proxy between WebContent and the network, implementing a client-server IPC model.
+
+### Key components
+
+#### ConnectionFromClient
+
+Manages IPC connections from WebContent processes. Handles multiple request types:
+
+- Standard HTTP/HTTPS requests
+- WebSocket connections
+- Cache operations
+- DNS configuration
+
+```cpp
+class ConnectionFromClient : public IPC::ConnectionFromClient<
+    RequestClientEndpoint, 
+    RequestServerEndpoint
+> {
+    HashMap<u64, NonnullOwnPtr<Request>> m_active_requests;
+    HashMap<u64, RefPtr<WebSocket::WebSocket>> m_websockets;
+};
+```
+
+Located in `Services/RequestServer/ConnectionFromClient.h:22`
+
+#### Request
+
+Represents an individual HTTP request with:
+
+- Request method (GET, POST, etc.)
+- Headers and body
+- Response handling
+- Progress tracking
+
+Located in `Services/RequestServer/Request.h`
+
+#### Resolver
+
+Handles DNS lookups by communicating with the system's **LookupServer** service.
+
+<Note>
+RequestServer asks LookupServer for DNS resolution rather than doing lookups directly.
+</Note>
+
+#### CURL integration
+
+RequestServer uses libcurl for HTTP operations:
+
+- Multi-handle for concurrent requests
+- Event-based I/O with notifiers
+- Custom callbacks for socket and timeout events
+
+```cpp
+static int on_socket_callback(void*, int sockfd, int what, void* user_data, void*);
+static int on_timeout_callback(void*, long timeout_ms, void* user_data);
+```
+
+Located in `Services/RequestServer/ConnectionFromClient.h:70`
+
+## Process spawning
+
+RequestServer is spawned by WebContent when needed:
+
+- WebContent creates RequestServer on initialization
+- Communication occurs over IPC sockets
+- Multiple WebContent processes = multiple RequestServer processes
+
+<Warning>
+Each WebContent process maintains its own RequestServer instance for isolation.
+</Warning>
+
+## HTTP disk cache
+
+RequestServer supports optional disk caching for HTTP resources:
+
+### Cache modes
+
+| Mode | Description |
+|------|-------------|
+| `disabled` | No caching (default) |
+| `enabled` | Standard HTTP cache behavior |
+| `partitioned` | Cache partitioned by site for privacy |
+| `testing` | Temporary cache for tests |
+
+Enable caching with the `--http-disk-cache-mode` flag:
+
+```bash
+RequestServer --http-disk-cache-mode=enabled
+```
+
+### Cache operations
+
+The cache supports:
+
+- Size estimation by access time
+- Bulk removal of cached entries
+- Respect for HTTP cache headers
+- Partitioning by origin for privacy
+
+## WebSocket support
+
+RequestServer manages WebSocket connections through `WebSocketImplCurl`:
+
+```cpp
+virtual void websocket_connect(
+    u64 websocket_id, 
+    URL::URL, 
+    ByteString origin,
+    Vector<ByteString> protocols,
+    Vector<ByteString> extensions,
+    Vector<HTTP::Header>
+) override;
+```
+
+Features:
+
+- Full duplex communication
+- Binary and text frames
+- Connection management
+- TLS support for secure WebSockets (wss://)
+
+Located in `Services/RequestServer/ConnectionFromClient.h:65`
+
+## Resource substitution
+
+For testing, RequestServer can substitute local files for network resources:
+
+```cpp
+class ResourceSubstitutionMap {
+    static ErrorOr<OwnPtr<ResourceSubstitutionMap>> load_from_file(StringView path);
+};
+```
+
+Use with `--resource-map` flag:
+
+```bash
+RequestServer --resource-map=/path/to/substitutions.json
+```
+
+<Tip>
+Resource substitution is useful for offline testing and avoiding external dependencies in test suites.
+</Tip>
+
+## Security features
+
+### Sandboxing
+
+RequestServer runs with limited privileges:
+
+- Separate unprivileged user
+- Restricted system calls via `pledge()`
+- Limited filesystem access via `unveil()`
+- Cannot spawn other processes
+
+### Certificate management
+
+Supports custom TLS certificates:
+
+```bash
+RequestServer --certificate=/path/to/cert.pem
+```
+
+Certificates can be set per-request or globally.
+
+## Configuration options
+
+| Option | Description |
+|--------|-------------|
+| `--certificate` | Path to TLS certificate file |
+| `--http-disk-cache-mode` | Cache mode (disabled, enabled, partitioned, testing) |
+| `--resource-map` | JSON file mapping URLs to local files |
+| `--wait-for-debugger` | Pause on startup for debugger attachment |
+| `--mach-server-name` | Mach server name (macOS only) |
+
+## Request pipeline
+
+1. **Receive request**: WebContent sends request via IPC
+2. **DNS resolution**: Resolve hostname through LookupServer
+3. **Connection**: Establish TCP/TLS connection
+4. **Send request**: Transmit HTTP request with headers and body
+5. **Receive response**: Stream response data back to WebContent
+6. **Cache**: Optionally store in disk cache
+
+## Proxy support
+
+RequestServer respects proxy configuration:
+
+```cpp
+virtual void start_request(
+    u64 request_id,
+    ByteString method,
+    URL::URL,
+    Vector<HTTP::Header>,
+    ByteBuffer body,
+    HTTP::CacheMode,
+    HTTP::Cookie::IncludeCredentials,
+    Core::ProxyData proxy_data  // Proxy configuration
+) override;
+```
+
+## Cookie handling
+
+Cookies are managed by WebContent, but RequestServer:
+
+- Includes cookies in requests as directed
+- Reports received cookies back to WebContent
+- Respects cookie security policies
+
+## Request revalidation
+
+Supports HTTP cache revalidation:
+
+```cpp
+void start_revalidation_request(
+    Badge<Request>,
+    ByteString method,
+    URL::URL,
+    NonnullRefPtr<HTTP::HeaderList> request_headers,
+    ByteBuffer request_body,
+    HTTP::Cookie::IncludeCredentials,
+    Core::ProxyData proxy_data
+);
+```
+
+Located in `Services/RequestServer/ConnectionFromClient.h:40`
+
+## Connection pooling
+
+CURL handles connection reuse automatically:
+
+- Keep-alive connections
+- HTTP/2 multiplexing
+- Connection limits per host
+
+## Error handling
+
+RequestServer reports various error conditions:
+
+- Network timeouts
+- Connection failures
+- DNS resolution errors
+- TLS certificate errors
+- HTTP protocol errors
+
+## Performance considerations
+
+- **Concurrent requests**: Multiple requests handled simultaneously
+- **Async I/O**: Non-blocking event-driven architecture
+- **Connection reuse**: HTTP keep-alive and HTTP/2
+- **Disk cache**: Reduces redundant network fetches
+
+## Related services
+
+- **WebContent**: Primary client of RequestServer
+- **LookupServer**: Global DNS resolution service
+- **Browser**: Spawns WebContent which spawns RequestServer

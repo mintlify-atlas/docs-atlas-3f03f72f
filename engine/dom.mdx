@@ -1,0 +1,628 @@
+---
+title: DOM implementation
+description: Explore Ladybird's Document Object Model implementation including nodes, elements, events, and tree structures
+---
+
+The Document Object Model (DOM) is the foundation of Ladybird's web rendering. It represents HTML and XML documents as a tree of nodes, providing the structure that CSS styles and JavaScript manipulates.
+
+## Overview
+
+LibWeb's DOM implementation (`LibWeb/DOM/`) provides a complete, spec-compliant DOM with:
+
+<CardGroup cols={2}>
+  <Card title="Node hierarchy" icon="sitemap">
+    Elements, text, comments, and document nodes
+  </Card>
+  <Card title="Event system" icon="bolt">
+    Event dispatch, bubbling, and capturing
+  </Card>
+  <Card title="Tree manipulation" icon="code-branch">
+    Insert, remove, and move nodes
+  </Card>
+  <Card title="Live collections" icon="list">
+    Dynamic element and node lists
+  </Card>
+</CardGroup>
+
+## Document and nodes
+
+### Document
+
+The `Document` class (`DOM/Document.h`, `DOM/Document.cpp`) is the root of the DOM tree:
+
+```cpp
+class Document : public ParentNode {
+    // Document properties
+    URL::URL const& url() const;
+    String title() const;
+    HTML::Window& window();
+    
+    // Tree manipulation
+    Element* document_element();
+    HTMLElement* body();
+    HTMLHeadElement* head();
+    
+    // Element creation
+    Element* create_element(String const& tag_name);
+    Text* create_text_node(String const& data);
+    
+    // Queries
+    Element* get_element_by_id(String const& id);
+    Vector<Element*> get_elements_by_tag_name(String const& tag_name);
+    Element* query_selector(String const& selector);
+    Vector<Element*> query_selector_all(String const& selector);
+};
+```
+
+**Key responsibilities**:
+- **URL and origin**: Security and resource loading
+- **Quirks mode**: Compatibility mode detection
+- **Style scopes**: Stylesheet management
+- **Layout invalidation**: Trigger re-layout when needed
+- **Event dispatch**: Root of event propagation
+
+### Node hierarchy
+
+All DOM objects inherit from `Node`:
+
+```cpp
+class Node : public EventTarget {
+    enum class Type {
+        Document,
+        Element,
+        Text,
+        Comment,
+        DocumentType,
+        DocumentFragment,
+        ProcessingInstruction,
+        CDATASection
+    };
+    
+    // Tree navigation
+    Node* parent_node();
+    Node* first_child();
+    Node* last_child();
+    Node* previous_sibling();
+    Node* next_sibling();
+    
+    // Tree manipulation
+    void append_child(Node& child);
+    void insert_before(Node& node, Node* child);
+    void remove_child(Node& child);
+    void replace_child(Node& node, Node& child);
+};
+```
+
+<Info>
+The node tree is implemented using `TreeNode<Node>` from `LibWeb/TreeNode.h`, providing efficient tree traversal and manipulation.
+</Info>
+
+### Element
+
+Elements are the most common node type (`DOM/Element.h`, `DOM/Element.cpp`):
+
+```cpp
+class Element : public ParentNode {
+    // Tag and attributes
+    String tag_name() const;
+    String get_attribute(String const& name) const;
+    void set_attribute(String const& name, String const& value);
+    bool has_attribute(String const& name) const;
+    void remove_attribute(String const& name);
+    
+    // Classes
+    bool has_class(String const& name) const;
+    DOMTokenList& class_list();
+    
+    // ID
+    String id() const;
+    void set_id(String const& id);
+    
+    // Style
+    CSSStyleDeclaration& style();
+    
+    // Geometry
+    int client_width() const;
+    int client_height() const;
+    int scroll_width() const;
+    int scroll_height() const;
+};
+```
+
+### Text nodes
+
+Text content is represented by `Text` nodes (`DOM/CharacterData.h`, `DOM/Text.h`):
+
+```cpp
+class CharacterData : public Node {
+    String data() const;
+    void set_data(String const& data);
+    u32 length() const;
+};
+
+class Text : public CharacterData {
+    // Text-specific operations
+    Text* split_text(u32 offset);
+    String whole_text() const;
+};
+```
+
+### Comment nodes
+
+Comments in HTML/XML (`DOM/Comment.h`):
+
+```cpp
+class Comment : public CharacterData {
+    // Represents <!-- comment -->
+};
+```
+
+## ParentNode and ChildNode
+
+Mixin interfaces for nodes with children:
+
+### ParentNode
+
+```cpp
+class ParentNode : public Node {
+    // Query methods
+    Element* query_selector(String const& selector);
+    Vector<Element*> query_selector_all(String const& selector);
+    Element* get_element_by_id(String const& id);
+    
+    // Child access
+    HTMLCollection* children();
+    Element* first_element_child();
+    Element* last_element_child();
+    u32 child_element_count();
+};
+```
+
+### ChildNode
+
+```cpp
+class ChildNode {
+    // Convenience methods
+    void remove();
+    void before(Vector<Node*> const& nodes);
+    void after(Vector<Node*> const& nodes);
+    void replace_with(Vector<Node*> const& nodes);
+};
+```
+
+## Event system
+
+The DOM event system enables interactive web pages:
+
+### EventTarget
+
+Base class for objects that can receive events (`DOM/EventTarget.h`):
+
+```cpp
+class EventTarget : public JS::Cell {
+    // Add event listeners
+    void add_event_listener(
+        String const& type,
+        IDLEventListener* callback,
+        Variant<bool, AddEventListenerOptions> options
+    );
+    
+    // Remove listeners
+    void remove_event_listener(
+        String const& type,
+        IDLEventListener* callback,
+        Variant<bool, EventListenerOptions> options
+    );
+    
+    // Dispatch events
+    bool dispatch_event(Event& event);
+};
+```
+
+### Event
+
+Base event class (`DOM/Event.h`, `DOM/Event.idl`):
+
+```cpp
+class Event {
+    String type() const;              // "click", "load", etc.
+    EventTarget* target() const;      // Event target
+    EventTarget* current_target() const;  // Current handler
+    
+    // Event phases
+    enum class Phase {
+        None = 0,
+        CapturingPhase = 1,
+        AtTarget = 2,
+        BubblingPhase = 3
+    };
+    Phase event_phase() const;
+    
+    // Event flow control
+    void stop_propagation();
+    void stop_immediate_propagation();
+    void prevent_default();
+    
+    bool bubbles() const;
+    bool cancelable() const;
+    bool default_prevented() const;
+};
+```
+
+### Event dispatch algorithm
+
+Events propagate through the DOM tree in three phases:
+
+1. **Capturing phase**: From document to target
+2. **At target phase**: On the target element
+3. **Bubbling phase**: From target back to document
+
+```cpp
+// Example event path:
+// Document -> HTML -> Body -> Div -> Button (target)
+//
+// Capturing:  Document → HTML → Body → Div → Button
+// At target:  Button
+// Bubbling:   Button → Div → Body → HTML → Document
+```
+
+<Note>
+Not all events bubble. For example, `focus` and `blur` events don't bubble, but `focusin` and `focusout` do.
+</Note>
+
+### Custom events
+
+Create custom events with `CustomEvent` (`DOM/CustomEvent.h`):
+
+```cpp
+class CustomEvent : public Event {
+    JS::Value detail() const;  // Custom data
+};
+
+// Usage:
+auto event = CustomEvent::create(realm, "my-event");
+element.dispatch_event(event);
+```
+
+## DOM collections
+
+### HTMLCollection
+
+Live collection of elements (`DOM/HTMLCollection.h`):
+
+```cpp
+class HTMLCollection {
+    u32 length() const;
+    Element* item(u32 index) const;
+    Element* named_item(String const& name) const;
+    
+    // Automatically updates when DOM changes
+};
+
+// Example:
+auto divs = document.get_elements_by_tag_name("div");
+// divs.length() updates automatically as divs are added/removed
+```
+
+### NodeList
+
+List of nodes, can be live or static (`DOM/NodeList.h`):
+
+```cpp
+class NodeList {
+    u32 length() const;
+    Node* item(u32 index) const;
+};
+```
+
+### DOMTokenList
+
+Manage space-separated tokens like classes (`DOM/DOMTokenList.h`):
+
+```cpp
+class DOMTokenList {
+    void add(Vector<String> const& tokens);
+    void remove(Vector<String> const& tokens);
+    bool toggle(String const& token, Optional<bool> force);
+    bool contains(String const& token) const;
+    void replace(String const& old_token, String const& new_token);
+};
+
+// Usage:
+element.class_list().add({ "active", "highlight" });
+element.class_list().toggle("hidden");
+```
+
+## Ranges and selections
+
+### Range
+
+Represents a portion of the document (`DOM/Range.h`):
+
+```cpp
+class Range : public AbstractRange {
+    // Boundary points
+    Node* start_container();
+    u32 start_offset();
+    Node* end_container();
+    u32 end_offset();
+    
+    // Mutation
+    void set_start(Node* node, u32 offset);
+    void set_end(Node* node, u32 offset);
+    DocumentFragment* extract_contents();
+    void insert_node(Node& node);
+    
+    // Comparison
+    bool is_point_in_range(Node* node, u32 offset);
+};
+```
+
+### Selection
+
+User's current selection (`Selection/Selection.h`):
+
+```cpp
+class Selection {
+    Range* get_range_at(u32 index);
+    u32 range_count() const;
+    
+    Node* anchor_node();
+    u32 anchor_offset();
+    Node* focus_node();
+    u32 focus_offset();
+    
+    bool is_collapsed() const;
+    void collapse(Node* node, u32 offset);
+    void select_all_children(Node& node);
+};
+```
+
+## Mutation observers
+
+Observe changes to the DOM (`DOM/MutationObserver.h`):
+
+```cpp
+class MutationObserver {
+    void observe(
+        Node& target,
+        MutationObserverInit const& options
+    );
+    
+    void disconnect();
+    Vector<MutationRecord*> take_records();
+};
+
+class MutationRecord {
+    String type();  // "attributes", "childList", "characterData"
+    Node* target();
+    Vector<Node*> added_nodes();
+    Vector<Node*> removed_nodes();
+    Node* previous_sibling();
+    Node* next_sibling();
+};
+```
+
+<Tip>
+Mutation observers are perfect for reacting to DOM changes without polling. They're used internally by frameworks and can be very powerful for custom components.
+</Tip>
+
+## Attributes
+
+Element attributes are managed through `Attr` nodes:
+
+### Attr
+
+```cpp
+class Attr : public Node {
+    String name() const;
+    String value() const;
+    void set_value(String const& value);
+    
+    Element* owner_element() const;
+    String namespace_uri() const;
+    String prefix() const;
+    String local_name() const;
+};
+```
+
+### NamedNodeMap
+
+Collection of attributes (`DOM/NamedNodeMap.h`):
+
+```cpp
+class NamedNodeMap {
+    u32 length() const;
+    Attr* item(u32 index);
+    Attr* get_named_item(String const& name);
+    Attr* set_named_item(Attr& attr);
+    Attr* remove_named_item(String const& name);
+};
+
+// Access via:
+element.attributes().get_named_item("id");
+```
+
+## Document fragments
+
+Lightweight containers for nodes (`DOM/DocumentFragment.h`):
+
+```cpp
+class DocumentFragment : public ParentNode {
+    // Used for:
+    // - Batch DOM operations
+    // - Template content
+    // - Range operations
+};
+
+// Example:
+auto fragment = document.create_document_fragment();
+for (auto item : items) {
+    auto li = document.create_element("li");
+    li.set_text_content(item);
+    fragment.append_child(li);
+}
+list.append_child(fragment);  // Single reflow
+```
+
+<Info>
+Using DocumentFragment for batch insertions is much more efficient than inserting nodes one at a time, as it triggers only one layout invalidation.
+</Info>
+
+## Shadow DOM
+
+Encapsulated DOM subtrees (`DOM/ShadowRoot.h`):
+
+```cpp
+class ShadowRoot : public DocumentFragment {
+    enum class Mode {
+        Open,    // Accessible via element.shadowRoot
+        Closed   // Not accessible from outside
+    };
+    
+    Mode mode() const;
+    Element& host() const;
+    
+    // Shadow tree has its own styles
+    Vector<CSSStyleSheet*> style_sheets();
+};
+
+// Create shadow root:
+auto shadow = element.attach_shadow({ .mode = ShadowRoot::Mode::Open });
+shadow.set_inner_html("<style>...</style><slot></slot>");
+```
+
+## Abort signals
+
+Cancel asynchronous operations (`DOM/AbortSignal.h`, `DOM/AbortController.h`):
+
+```cpp
+class AbortController {
+    AbortSignal& signal();
+    void abort(JS::Value reason);
+};
+
+class AbortSignal : public EventTarget {
+    bool aborted() const;
+    JS::Value reason() const;
+    
+    // Events:
+    // - "abort" when aborted
+};
+
+// Usage:
+auto controller = AbortController::create();
+fetch(url, { .signal = controller.signal() });
+controller.abort();  // Cancel the fetch
+```
+
+## Tree traversal
+
+Efficient tree walking with `TreeWalker` and `NodeIterator`:
+
+```cpp
+class TreeWalker {
+    Node* current_node();
+    Node* parent_node();
+    Node* first_child();
+    Node* last_child();
+    Node* previous_sibling();
+    Node* next_sibling();
+    Node* previous_node();
+    Node* next_node();
+};
+```
+
+## Accessibility tree
+
+The accessibility tree (`DOM/AccessibilityTreeNode.h`) provides structure for assistive technologies:
+
+```cpp
+class AccessibilityTreeNode {
+    // ARIA roles and properties
+    String role() const;
+    String label() const;
+    
+    // Tree structure
+    Vector<AccessibilityTreeNode*> children();
+};
+```
+
+## Update and invalidation
+
+The document tracks what needs updating:
+
+### Layout invalidation
+
+```cpp
+enum class InvalidateLayoutTreeReason {
+    DocumentAddAnElementToTheTopLayer,
+    ShadowRootSetInnerHTML,
+    // ...
+};
+
+document.invalidate_layout_tree(reason);
+```
+
+### Update reasons
+
+```cpp
+enum class UpdateLayoutReason {
+    ElementClientHeight,
+    ElementScrollIntoView,
+    HTMLElementOffsetHeight,
+    // ... many reasons
+};
+
+document.update_layout(reason);
+```
+
+<Warning>
+Frequent layout invalidation can cause performance issues. Batch DOM changes when possible and avoid reading layout properties (like `offsetHeight`) during animations.
+</Warning>
+
+## Integration with other systems
+
+### With CSS
+
+```cpp
+class Element {
+    // Computed style from CSS
+    CSS::ComputedValues const& computed_values();
+    
+    // Inline style
+    CSS::CSSStyleDeclaration& style();
+};
+```
+
+### With Layout
+
+```cpp
+class Node {
+    // Layout representation
+    Layout::Node* layout_node();
+};
+```
+
+### With JavaScript
+
+```cpp
+class Node : public JS::Cell {
+    GC_CELL(Node, JS::Cell);
+    // All DOM nodes are GC-managed
+};
+```
+
+## Related components
+
+<CardGroup cols={3}>
+  <Card title="LibWeb" href="/engine/libweb">
+    Overall rendering engine
+  </Card>
+  <Card title="CSS" href="/engine/css">
+    Styling the DOM tree
+  </Card>
+  <Card title="HTML">
+    HTML-specific elements and behaviors
+  </Card>
+</CardGroup>

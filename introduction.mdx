@@ -1,0 +1,136 @@
+---
+title: Introduction to Ladybird
+description: A truly independent web browser built from scratch using a novel engine based on web standards
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Ladybird Browser Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Ladybird Browser Hero Dark"
+/>
+
+## Welcome to Ladybird
+
+[Ladybird](https://ladybird.org) is a truly independent web browser, using a novel engine based on web standards.
+
+<Warning>
+Ladybird is in a pre-alpha state, and only suitable for use by developers.
+</Warning>
+
+## What makes Ladybird different?
+
+Ladybird stands apart from other browsers in several key ways:
+
+- **Fully independent**: Written from scratch, using no code from any other browser engine (not a Chromium shell, not a WebKit port, not a Firefox fork)
+- **Singular focus**: Dedicated solely to building a new browser engine and browser
+- **No monetization**: Will never take funding from default search deals or any other forms of user monetization, ever
+- **Community-driven**: Funded entirely through donations and sponsorships
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Build and run Ladybird on your system in minutes
+  </Card>
+  <Card
+    title="Frequently asked questions"
+    icon="circle-question"
+    href="/faq"
+  >
+    Get answers to common questions about the project
+  </Card>
+  <Card
+    title="Contributing"
+    icon="code-pull-request"
+    href="/contributing"
+  >
+    Learn how to contribute to Ladybird development
+  </Card>
+  <Card
+    title="Join Discord"
+    icon="discord"
+    href="https://discord.gg/nvfjVJ4Svh"
+  >
+    Participate in development discussion on our Discord server
+  </Card>
+</CardGroup>
+
+## Architecture overview
+
+Ladybird uses a multi-process architecture with:
+
+- **Main UI process**: Handles the browser interface
+- **WebContent renderer processes**: Each tab has its own sandboxed renderer process
+- **ImageDecoder process**: Decodes images out of process for robustness against malicious content
+- **RequestServer process**: Handles network connections out of process
+
+### Core components
+
+Many core library support components are inherited from SerenityOS:
+
+- **LibWeb**: Web rendering engine (HTML, CSS, Events, DOM, APIs)
+- **LibJS**: JavaScript engine written from scratch (currently JIT-less)
+- **LibWasm**: WebAssembly implementation written from scratch
+- **LibCrypto/LibTLS**: Cryptography primitives and Transport Layer Security
+- **LibHTTP**: HTTP/1.1 client
+- **LibGfx**: 2D Graphics Library, image decoding and rendering
+- **LibUnicode**: Unicode and locale support
+- **LibMedia**: Audio and video playback
+- **LibCore**: Event loop and OS abstraction layer
+- **LibIPC**: Inter-process communication
+
+## Platform support
+
+Ladybird runs on:
+
+- Linux
+- macOS
+- Windows (with WSL2)
+- Many other *Nixes
+- Android (experimental)
+
+## Release roadmap
+
+<Steps>
+  <Step title="2026: Alpha release">
+    Daily driver for developers and early adopters on Linux and macOS
+  </Step>
+  <Step title="2027: Beta release">
+    Downloadable app for Linux and macOS
+  </Step>
+  <Step title="2028: Stable release">
+    General use release for everyone
+  </Step>
+</Steps>
+
+## Get involved
+
+<CardGroup cols={2}>
+  <Card
+    title="GitHub repository"
+    icon="github"
+    href="https://github.com/LadybirdBrowser/ladybird"
+  >
+    View the source code and contribute on GitHub
+  </Card>
+  <Card
+    title="Support the project"
+    icon="heart"
+    href="https://donorbox.org/ladybird"
+  >
+    Make a donation to support development
+  </Card>
+</CardGroup>
+
+## Learn more
+
+<Info>
+Check out the [FAQ](/faq) to learn about the project's history, goals, and technical details.
+</Info>

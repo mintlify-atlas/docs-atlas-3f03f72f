@@ -1,0 +1,476 @@
+---
+title: LibWasm WebAssembly implementation
+description: Discover LibWasm, Ladybird's WebAssembly engine with bytecode validation, interpretation, and WASI support
+---
+
+LibWasm is Ladybird's WebAssembly implementation, providing a complete runtime for executing WebAssembly modules. It includes a validator, interpreter, and support for the WebAssembly System Interface (WASI).
+
+## Overview
+
+WebAssembly (Wasm) is a binary instruction format designed as a portable compilation target for programming languages. LibWasm enables Ladybird to run high-performance code compiled from languages like C, C++, and Rust directly in web pages.
+
+<CardGroup cols={2}>
+  <Card title="Validation" icon="check-circle">
+    Verify WebAssembly module correctness and safety
+  </Card>
+  <Card title="Interpretation" icon="play">
+    Execute WebAssembly bytecode instructions
+  </Card>
+  <Card title="Type system" icon="shapes">
+    Strong static typing with value types
+  </Card>
+  <Card title="WASI support" icon="terminal">
+    System interface for WebAssembly programs
+  </Card>
+</CardGroup>
+
+## Architecture
+
+LibWasm is organized into several key components:
+
+```
+Libraries/LibWasm/
+  ├── AbstractMachine/      # Execution engine
+  ├── Parser/               # Binary format parsing
+  ├── Printer/              # Debug output
+  ├── WASI/                 # System interface
+  ├── Types.h               # WebAssembly type system
+  ├── Opcode.h              # Instruction definitions
+  └── Constants.h           # WebAssembly constants
+```
+
+## Abstract machine
+
+The abstract machine implements the WebAssembly execution model:
+
+```cpp
+class AbstractMachine {
+    // Module instantiation
+    // Function invocation
+    // Memory management
+    // Table operations
+};
+```
+
+**Key components** (`AbstractMachine/`):
+
+<CardGroup cols={2}>
+  <Card title="Interpreter">
+    Executes WebAssembly instructions
+  </Card>
+  <Card title="Configuration">
+    Runtime state (stack, locals, memory)
+  </Card>
+  <Card title="Validator">
+    Ensures module safety and correctness
+  </Card>
+  <Card title="Bytecode interpreter">
+    Low-level instruction execution
+  </Card>
+</CardGroup>
+
+### Configuration
+
+The configuration (`Configuration.cpp`, `Configuration.h`) maintains the runtime state:
+
+```cpp
+struct Configuration {
+    Vector<Value> stack;        // Value stack
+    Vector<Frame> frames;       // Call frames
+    Vector<Label> labels;       // Control labels
+    // Module instances
+    // Memory instances
+    // Table instances
+};
+```
+
+### Validator
+
+The validator (`Validator.cpp`, `Validator.h`) checks modules before execution:
+
+- **Type checking**: Ensures instruction type correctness
+- **Stack validation**: Verifies stack operations are valid
+- **Control flow**: Validates branches and function calls
+- **Memory safety**: Checks memory access bounds
+
+<Info>
+WebAssembly validation ensures that modules cannot perform unsafe operations, providing strong security guarantees similar to sandboxed execution.
+</Info>
+
+## Type system
+
+WebAssembly has a simple but powerful type system (`Types.h`):
+
+### Value types
+
+```cpp
+enum class ValueType : u8 {
+    I32,    // 32-bit integer
+    I64,    // 64-bit integer
+    F32,    // 32-bit float
+    F64,    // 64-bit float
+    V128,   // 128-bit vector (SIMD)
+    FuncRef,    // Function reference
+    ExternRef,  // External reference
+};
+```
+
+### Function types
+
+```cpp
+struct FunctionType {
+    Vector<ValueType> parameters;
+    Vector<ValueType> results;
+};
+```
+
+Functions can have multiple parameters and multiple return values.
+
+### Limits
+
+```cpp
+struct Limits {
+    u32 min;              // Minimum size
+    Optional<u32> max;    // Optional maximum size
+};
+```
+
+Used for memory and table size constraints.
+
+## Instructions and opcodes
+
+WebAssembly instructions are defined in `Opcode.h`:
+
+### Control instructions
+
+```cpp
+// Control flow
+Opcode::Unreachable    // Trap
+Opcode::Nop            // No operation
+Opcode::Block          // Block scope
+Opcode::Loop           // Loop scope
+Opcode::If             // Conditional
+Opcode::Else           // Else clause
+Opcode::End            // End scope
+Opcode::Br             // Branch
+Opcode::BrIf           // Conditional branch
+Opcode::BrTable        // Branch table (switch)
+Opcode::Return         // Return from function
+Opcode::Call           // Call function
+Opcode::CallIndirect   // Indirect call
+```
+
+### Numeric instructions
+
+```cpp
+// Integer operations (i32/i64)
+Opcode::I32Add, Opcode::I64Add      // Addition
+Opcode::I32Sub, Opcode::I64Sub      // Subtraction
+Opcode::I32Mul, Opcode::I64Mul      // Multiplication
+Opcode::I32DivS, Opcode::I64DivS    // Signed division
+Opcode::I32DivU, Opcode::I64DivU    // Unsigned division
+
+// Float operations (f32/f64)
+Opcode::F32Add, Opcode::F64Add      // Addition
+Opcode::F32Sub, Opcode::F64Sub      // Subtraction
+Opcode::F32Mul, Opcode::F64Mul      // Multiplication
+Opcode::F32Div, Opcode::F64Div      // Division
+```
+
+### Memory instructions
+
+```cpp
+// Load operations
+Opcode::I32Load        // Load 32-bit integer
+Opcode::I64Load        // Load 64-bit integer
+Opcode::F32Load        // Load 32-bit float
+Opcode::F64Load        // Load 64-bit float
+Opcode::I32Load8S      // Load signed 8-bit, extend to 32
+Opcode::I32Load8U      // Load unsigned 8-bit, extend to 32
+
+// Store operations
+Opcode::I32Store       // Store 32-bit integer
+Opcode::I64Store       // Store 64-bit integer
+Opcode::F32Store       // Store 32-bit float
+Opcode::F64Store       // Store 64-bit float
+
+// Memory operations
+Opcode::MemorySize     // Get current memory size
+Opcode::MemoryGrow     // Grow memory
+```
+
+<Tip>
+WebAssembly memory is a contiguous byte array that can be dynamically grown. All memory access is bounds-checked for safety.
+</Tip>
+
+### Variable instructions
+
+```cpp
+Opcode::LocalGet       // Read local variable
+Opcode::LocalSet       // Write local variable
+Opcode::LocalTee       // Write local and keep value on stack
+Opcode::GlobalGet      // Read global variable
+Opcode::GlobalSet      // Write global variable
+```
+
+## Bytecode interpreter
+
+The bytecode interpreter (`AbstractMachine/BytecodeInterpreter.cpp`) executes instructions:
+
+```cpp
+class BytecodeInterpreter {
+public:
+    Result<void> execute(Instruction const& instruction);
+    
+private:
+    Configuration& m_config;
+    // Executes individual opcodes
+    // Manages value stack
+    // Handles control flow
+};
+```
+
+**Execution model**:
+1. **Fetch**: Get next instruction
+2. **Decode**: Determine operation and operands
+3. **Execute**: Perform the operation
+4. **Update**: Modify stack and state
+
+<Note>
+WebAssembly uses a stack-based execution model. All operations consume values from the stack and push results back.
+</Note>
+
+## Memory management
+
+WebAssembly modules have linear memory:
+
+- **Page size**: 64 KiB (65,536 bytes)
+- **Growth**: Can be grown dynamically with `memory.grow`
+- **Limits**: Optional maximum size constraints
+- **Bounds checking**: All accesses are validated
+
+```cpp
+struct MemoryInstance {
+    Vector<u8> data;           // Memory contents
+    Limits limits;             // Size constraints
+    
+    Result<void> grow(u32 pages);
+    Result<u8> read_byte(u32 address);
+    Result<void> write_byte(u32 address, u8 value);
+};
+```
+
+## Tables
+
+Tables store references (typically function references):
+
+```cpp
+struct TableInstance {
+    Vector<Reference> elements;
+    Limits limits;
+    ReferenceType element_type;
+};
+```
+
+Tables enable:
+- **Indirect calls**: `call_indirect` instruction
+- **Dynamic dispatch**: Function pointers
+- **First-class functions**: Store and pass functions
+
+## WASI - WebAssembly System Interface
+
+WASI (`WASI/`, `Wasi.h`) provides system-level capabilities:
+
+```cpp
+namespace WASI {
+    // File system operations
+    Result<FileDescriptor> fd_open(...);
+    Result<Size> fd_read(FileDescriptor, Buffer);
+    Result<Size> fd_write(FileDescriptor, Buffer);
+    Result<void> fd_close(FileDescriptor);
+    
+    // Environment
+    Result<Vector<String>> environ_get();
+    Result<Vector<String>> args_get();
+    
+    // Random numbers
+    Result<void> random_get(Buffer);
+    
+    // Clock
+    Result<Timestamp> clock_time_get(ClockId);
+}
+```
+
+<CardGroup cols={2}>
+  <Card title="File I/O">
+    Read and write files with capability-based security
+  </Card>
+  <Card title="Environment">
+    Access environment variables and arguments
+  </Card>
+  <Card title="Random">
+    Cryptographically secure random number generation
+  </Card>
+  <Card title="Clock">
+    Access system time and monotonic clocks
+  </Card>
+</CardGroup>
+
+<Warning>
+WASI uses capability-based security. A WebAssembly module can only access resources it's explicitly given permissions for.
+</Warning>
+
+## Module structure
+
+A WebAssembly module consists of several sections:
+
+```cpp
+struct Module {
+    Vector<FunctionType> types;        // Type section
+    Vector<Import> imports;            // Import section
+    Vector<Function> functions;        // Function section
+    Vector<Table> tables;              // Table section
+    Vector<Memory> memories;           // Memory section
+    Vector<Global> globals;            // Global section
+    Vector<Export> exports;            // Export section
+    Optional<u32> start;               // Start function
+    Vector<Element> elements;          // Element section
+    Vector<Code> code;                 // Code section
+    Vector<Data> data;                 // Data section
+};
+```
+
+## Parser
+
+The parser (`Parser/`) reads the WebAssembly binary format:
+
+- **Magic number**: `\0asm` (0x00 0x61 0x73 0x6D)
+- **Version**: Currently version 1 (0x01 0x00 0x00 0x00)
+- **Sections**: Type, Import, Function, Memory, etc.
+- **LEB128 encoding**: Variable-length integer encoding
+
+```cpp
+class Parser {
+public:
+    Result<Module> parse(ReadonlyBytes data);
+    
+private:
+    Result<u32> parse_leb128_u32();
+    Result<i32> parse_leb128_i32();
+    Result<Vector<ValueType>> parse_result_type();
+    Result<Instruction> parse_instruction();
+};
+```
+
+## Printer
+
+The printer (`Printer/`) converts WebAssembly to human-readable format:
+
+```cpp
+// Convert module to WAT (WebAssembly Text Format)
+String module_to_string(Module const&);
+
+// Example output:
+// (module
+//   (func $add (param i32 i32) (result i32)
+//     local.get 0
+//     local.get 1
+//     i32.add
+//   )
+// )
+```
+
+<Tip>
+The printer is invaluable for debugging. It converts binary WebAssembly back to readable text format.
+</Tip>
+
+## Integration with LibWeb
+
+LibWasm integrates with LibWeb for web usage:
+
+```cpp
+// LibWeb/WebAssembly/
+class WebAssemblyModule {
+    // Compile WebAssembly.Module
+    // Instantiate with imports
+    // Call exported functions
+};
+```
+
+**Web APIs**:
+- `WebAssembly.compile()`: Compile module
+- `WebAssembly.instantiate()`: Instantiate module
+- `WebAssembly.Module`: Compiled module object
+- `WebAssembly.Instance`: Instantiated module
+- `WebAssembly.Memory`: Shared memory
+- `WebAssembly.Table`: Shared table
+
+## Testing
+
+LibWasm includes comprehensive tests:
+
+```
+LibWasm/Tests/
+  ├── spec/          # Official WebAssembly spec tests
+  ├── wasi/          # WASI functionality tests
+  └── custom/        # Ladybird-specific tests
+```
+
+## Constants
+
+WebAssembly constants (`Constants.h`):
+
+```cpp
+namespace Wasm::Constants {
+    constexpr u32 magic_number = 0x6d736100;  // "\0asm"
+    constexpr u32 version = 0x01;
+    constexpr u32 page_size = 65536;          // 64 KiB
+    constexpr u32 max_pages = 65536;          // 4 GiB max
+}
+```
+
+## Performance characteristics
+
+WebAssembly is designed for performance:
+
+- **Near-native speed**: Typically 1.5x slower than native
+- **Compact binary format**: Smaller than JavaScript
+- **Streaming compilation**: Start compiling while downloading
+- **Efficient validation**: Single-pass linear-time validation
+
+<Note>
+LibWasm currently uses interpretation. Future versions may add JIT compilation for even better performance.
+</Note>
+
+## Use cases
+
+WebAssembly enables:
+
+<CardGroup cols={2}>
+  <Card title="Gaming">
+    Port existing C/C++ games to the web
+  </Card>
+  <Card title="Image/video editing">
+    High-performance media processing
+  </Card>
+  <Card title="Scientific computing">
+    Run complex simulations in the browser
+  </Card>
+  <Card title="Cryptography">
+    Fast, secure cryptographic operations
+  </Card>
+</CardGroup>
+
+## Related components
+
+<CardGroup cols={3}>
+  <Card title="LibJS" href="/engine/libjs">
+    JavaScript engine for web scripts
+  </Card>
+  <Card title="LibWeb" href="/engine/libweb">
+    Web rendering and WebAssembly integration
+  </Card>
+  <Card title="WebAssembly Web API">
+    JavaScript bindings in LibWeb/WebAssembly/
+  </Card>
+</CardGroup>

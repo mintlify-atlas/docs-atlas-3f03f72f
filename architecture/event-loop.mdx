@@ -1,0 +1,301 @@
+---
+title: Event loop architecture
+description: Understanding LibCore's EventLoop system for handling concurrent application tasks
+---
+
+LibCore provides the `EventLoop` system for handling application tasks concurrently on a single thread. This event-driven architecture is fundamental to how Ladybird processes user input, network events, timers, and other asynchronous operations.
+
+<Warning>
+This document describes LibCore's event loop system, not web event loops (which are a separate LibWeb concept).
+</Warning>
+
+## What is an event loop?
+
+The event loop is a design pattern found in many systems. It can be briefly summarized as:
+
+> An in-process loop, running continuously, which processes incoming events from signals, notifiers, file watchers, timers, etc. by running associated callbacks.
+
+The event loop relies on callbacks eventually returning control to it, enabling other events to be processed. In this way, it operates like a **cooperative multitasking scheduler in userspace**.
+
+<Info>
+LibCore's event loop system is primarily used with graphical applications. LibGUI and IPC are deeply integrated into it. Command-line applications may not need to interact with the event loop.
+</Info>
+
+## How it works
+
+### The execution cycle
+
+When an event loop runs, it sits in `exec()` repeatedly `pump()`ing the loop:
+
+1. `exec()` waits for an event to happen
+2. Runs all callbacks associated with that event
+3. Goes back to sleep and waits for more events
+
+### Low-level mechanics
+
+Here's what happens under the hood:
+
+<Steps>
+  <Step title="Enter event loop">
+    On `exec()`, the event loop enters the **event loop stack**. Then, the loop is pumped repeatedly.
+  </Step>
+  
+  <Step title="Wait for events">
+    Each `pump()` first puts the event loop to sleep with `wait_for_event()`, then handles all events.
+  </Step>
+  
+  <Step title="System-level waiting">
+    `wait_for_event()` uses `select(2)` to wait until one of the prepared file descriptors becomes readable or writable, or until a timeout expires.
+  </Step>
+  
+  <Step title="Handle events">
+    After `select(2)` returns, signals are dispatched to handlers. Other new events (expired timers, file notifications) are added to the event queue.
+  </Step>
+  
+  <Step title="Exit handling">
+    If the event loop's exit is requested, it returns pending events to the queue for the next-lower event loop to handle.
+  </Step>
+</Steps>
+
+### The select(2) system call
+
+The event loop uses `select(2)` to efficiently wait for events:
+
+```c
+// Pseudocode representation
+select(file_descriptors, &readable, &writable, &timeout);
+```
+
+**File descriptors monitored:**
+
+- **File notifiers**: Registered by the application
+- **Wake pipe**: Used for signal handling and cross-thread wakeups
+
+**Timeout behavior:**
+
+- **Infinite**: When there are no time-based wake conditions
+- **Minimum timer**: When timers are registered, timeout is the shortest
+- **Zero**: When events are already available (immediate return)
+
+<Tip>
+While an event loop has nothing to do, the kernel keeps the thread asleep. This is why most GUI applications appear in "Selecting" state in SystemMonitor.
+</Tip>
+
+### The wake pipe mechanism
+
+The wake pipe serves two critical purposes:
+
+1. **Signal handling**: When a POSIX signal is received that the event loop has a handler for, `handle_signal()` writes the handler number to the pipe
+2. **Cross-thread waking**: The `wake()` function writes 0 (not a valid signal number) to wake the event loop from other threads
+
+## Thread-local state
+
+All event loop state is **thread-local**:
+
+- Notifiers
+- Timers
+- Event loop stack
+- Event queues
+
+The convenience getter `EventLoop::current()` returns the topmost event loop on the calling thread.
+
+<Warning>
+Each thread has its own event loop stack. Never access or manipulate event loops from other threads.
+</Warning>
+
+## Event loop stack
+
+The **event loop stack** enables nested event loops, primarily used for modal GUI windows.
+
+### How the stack works
+
+- Each window can add another event loop onto the stack
+- When an event loop exits, remaining events are added to the lower event loop's queue
+- This allows `GUI::Window` and similar systems to create event loops without interfering with existing ones
+
+```cpp
+// Simplified example
+EventLoop main_loop;
+main_loop.exec();  // Main event loop
+
+// Later, a modal dialog creates a nested loop
+EventLoop dialog_loop;
+dialog_loop.exec();  // Nested loop on top of stack
+
+// When dialog closes, control returns to main_loop
+```
+
+## Event types
+
+The event loop handles several kinds of events:
+
+### POSIX signals
+
+Register signal handlers with `EventLoop::register_signal()`:
+
+```cpp
+EventLoop::register_signal(SIGINT, [](int) {
+    // Signal handler runs as a normal event
+    // No POSIX signal handler weirdness!
+});
+```
+
+<Info>
+The event loop registers the specified POSIX signal with the kernel, and the handler runs as a normal event without the complexity of traditional signal handlers.
+</Info>
+
+### Posted events
+
+`EventLoop::post_event()` fires an event targeting a specific `Core::EventReceiver`:
+
+```cpp
+EventLoop::post_event(target, make<CustomEvent>());
+```
+
+### Deferred callbacks
+
+`EventLoop::deferred_invoke()` calls an arbitrary callback on the next iteration:
+
+```cpp
+EventLoop::deferred_invoke([this] {
+    // Runs on next event loop iteration
+    update_ui();
+});
+```
+
+### Timer events
+
+Create timers that fire after a timeout, possibly repeatedly:
+
+- `EventLoop::register_timer`: Low-level timer registration
+- `Object::start_timer()`: Object-based timer API
+- `Core::Timer`: User-friendly utility class
+
+```cpp
+auto timer = Core::Timer::create();
+timer->set_interval(1000);  // 1 second
+timer->on_timeout = [] {
+    // Called every second
+};
+timer->start();
+```
+
+### File notifications
+
+`Core::Notifier` handles file descriptor readiness:
+
+```cpp
+auto notifier = Core::Notifier::create(
+    socket_fd,
+    Core::Notifier::Type::Read
+);
+notifier->on_activation = [socket_fd] {
+    // Socket is readable
+    auto data = read_from_socket(socket_fd);
+};
+```
+
+<Note>
+All events are registered and fire on the event loop of the thread that created them.
+</Note>
+
+## Best practices
+
+### Do's
+
+<CardGroup cols={2}>
+  <Card title="Create in main()" icon="check">
+    Create your main event loop in `main()` and pass it to classes that need it
+  </Card>
+  
+  <Card title="Know your thread" icon="check">
+    Only access the event loop when you know which thread you're on
+  </Card>
+  
+  <Card title="Signal across threads" icon="check">
+    Use event signaling to communicate with event loops on other threads
+  </Card>
+  
+  <Card title="Handle events anywhere" icon="check">
+    It's fine to handle events from any thread
+  </Card>
+</CardGroup>
+
+### Don'ts
+
+<Warning>
+Violating these rules can cause crashes, undefined behavior, or initialization order fiascos.
+</Warning>
+
+- **DO NOT** store an event loop in a global variable
+  - The event loop relies on global variable initialization
+  - UBSAN will catch initialization order fiascos
+  
+- **DO NOT** access the current event loop if you don't know your thread
+  - The program will crash if there's no event loop on your thread
+  
+- **DO NOT** `pump()` or `exec()` the event loop of another thread
+  - Sleeping and waking relies on thread-local variables
+  - Only signal events to other threads' event loops
+
+## Example usage
+
+Here's a typical pattern for GUI applications:
+
+```cpp
+int main(int argc, char** argv)
+{
+    auto app = GUI::Application::create(argc, argv);
+    
+    // Create main window
+    auto window = GUI::Window::construct();
+    
+    // Set up UI...
+    
+    window->show();
+    
+    // GUI::Application::exec() runs an event loop
+    return app->exec();
+}
+```
+
+### Return value pattern
+
+The pattern `return app->exec()` is common in GUI applications because:
+
+- `exec()` returns a value comparable to process return codes
+- The event loop processes events until the application exits
+- The return value propagates through to the process exit code
+
+## Integration with LibGUI
+
+LibGUI is deeply integrated with the event loop:
+
+- **GUI::Application**: Creates and manages the main event loop
+- **GUI::Window**: Can create nested event loops for modal dialogs
+- **Widget events**: Mouse, keyboard, and paint events delivered via event loop
+- **Timers**: Used for animations, periodic updates, and timeouts
+
+## Integration with IPC
+
+Ladybird's IPC system relies heavily on the event loop:
+
+- IPC connections register file notifiers for socket readiness
+- Messages are dispatched as events through the event loop
+- Asynchronous IPC responses delivered via deferred callbacks
+
+<Tip>
+The event loop's ability to handle multiple file descriptors simultaneously enables efficient IPC between Ladybird's multiple processes.
+</Tip>
+
+## Related documentation
+
+<CardGroup cols={2}>
+  <Card title="Architecture overview" href="/architecture/overview" icon="sitemap">
+    Overview of Ladybird's architecture
+  </Card>
+  
+  <Card title="Process architecture" href="/architecture/process-architecture" icon="diagram-project">
+    Multi-process design and IPC
+  </Card>
+</CardGroup>

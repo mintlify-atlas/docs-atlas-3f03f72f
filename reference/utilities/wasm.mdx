@@ -1,0 +1,329 @@
+---
+title: WebAssembly utility
+description: WebAssembly module parser, validator, and runtime for Ladybird Browser
+---
+
+The `wasm` utility is a command-line WebAssembly runtime that can parse, validate, instantiate, and execute WebAssembly modules. It supports WASI (WebAssembly System Interface) for system interactions and provides integration with JavaScript functions.
+
+## Usage
+
+### Basic syntax
+
+```bash
+wasm [options] <file.wasm>
+```
+
+## Command-line options
+
+### Module operations
+
+| Option | Description |
+|--------|-------------|
+| `-p, --print` | Print the parsed WebAssembly module |
+| `--print-compiled` | Print the compiled module bytecode |
+| `-f, --print-function <address>` | Print specific function bytecode by address |
+| `-i, --instantiate` | Instantiate the module (resolve imports and initialize) |
+
+### Execution options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --execute <name>` | Execute the named exported function (implies `-i`) |
+| `--arg <value>` | Supply arguments to the function (see value format below) |
+| `-l, --link <file>` | Link with additional WASM modules to resolve imports |
+| `--export-noop` | Export no-op stub functions for all imports |
+
+### WASI support
+
+| Option | Description |
+|--------|-------------|
+| `-w, --wasi` | Enable WASI (WebAssembly System Interface) |
+| `--wasi-map-dir <path[:path]>` | Map host directory to WASI filesystem |
+| `<args>` | Positional arguments passed to WASI module |
+
+<Info>
+WASI is not available on Windows builds.
+</Info>
+
+### JavaScript integration
+
+| Option | Description |
+|--------|-------------|
+| `--export-js <spec>` | Export JavaScript function as WASM import (see format below) |
+
+## Argument value format
+
+The `--arg` option accepts values in the following formats:
+
+### Scalar values
+
+```bash
+wasm --arg "i32.const:42" module.wasm
+wasm --arg "i64.const:1000" module.wasm
+wasm --arg "f32.const:3.14" module.wasm
+wasm --arg "f64.const:2.718" module.wasm
+wasm --arg "f32.const:nan" module.wasm
+wasm --arg "f64.const:inf" module.wasm
+```
+
+### Vector values (v128)
+
+Hexadecimal format:
+
+```bash
+wasm --arg "v128.const:0x01000000020000000300000004000000" module.wasm
+```
+
+Component format:
+
+```bash
+wasm --arg "v(i32.const:1, i32.const:2, i32.const:3, i32.const:4)" module.wasm
+```
+
+<Warning>
+When using vector component format, all values must have the same type. Mixed types will result in an error.
+</Warning>
+
+### Smaller integer types
+
+```bash
+wasm --arg "i8.const:127" module.wasm
+wasm --arg "i16.const:32767" module.wasm
+```
+
+## JavaScript export format
+
+The `--export-js` option uses this format:
+
+```
+module.function(arg:type,...):returnType=source
+```
+
+### Examples
+
+```bash
+# Export simple function
+wasm --export-js "env.log(x:i32):i32=console.log(x)" module.wasm
+
+# Export with multiple arguments
+wasm --export-js "env.add(a:i32,b:i32):i32=a + b" module.wasm
+
+# Export with f64 return
+wasm --export-js "math.sqrt(x:f64):f64=Math.sqrt(x)" module.wasm
+
+# Export without return value
+wasm --export-js "env.print(msg:i32)=console.log(msg)" module.wasm
+```
+
+### Supported types
+
+- `i32` - 32-bit integer
+- `i64` - 64-bit integer
+- `f32` - 32-bit float
+- `f64` - 64-bit float
+- `v128` - 128-bit vector
+
+## Examples
+
+### Parse and print a module
+
+```bash
+wasm --print module.wasm
+```
+
+### Instantiate and execute a function
+
+```bash
+wasm --execute "_start" module.wasm
+```
+
+### Execute with arguments
+
+```bash
+wasm --execute "add" --arg "i32.const:10" --arg "i32.const:20" module.wasm
+```
+
+### Link multiple modules
+
+```bash
+wasm --link utils.wasm --execute "main" app.wasm
+```
+
+### WASI module execution
+
+```bash
+wasm --wasi --execute "_start" wasi-app.wasm arg1 arg2 arg3
+```
+
+### Map host directories to WASI
+
+```bash
+wasm --wasi --wasi-map-dir "/tmp:/sandbox" --execute "_start" app.wasm
+wasm --wasi --wasi-map-dir "/home/user/data" --execute "_start" app.wasm
+```
+
+<Tip>
+When no mapping is specified (e.g., `/home/user/data`), the directory is mapped to the same path in the WASI filesystem.
+</Tip>
+
+### Export JavaScript functions
+
+```bash
+wasm --export-js "env.log(x:i32)=console.log(x)" \
+     --execute "main" module.wasm
+```
+
+### Debug compiled bytecode
+
+```bash
+wasm --instantiate --print-compiled module.wasm
+```
+
+### Export no-op stubs for testing
+
+```bash
+wasm --export-noop --instantiate module.wasm
+```
+
+## Output format
+
+### Module structure
+
+When using `--print`, the utility displays:
+- Module sections
+- Function signatures
+- Import/export declarations
+- Memory and table definitions
+
+### Compiled bytecode
+
+When using `--print-compiled`, displays:
+- Function addresses
+- Stack usage hints
+- Instruction sequences
+- Register assignments
+
+### Function return values
+
+Execution results are printed to stderr:
+
+```bash
+$ wasm --execute "add" --arg "i32.const:5" --arg "i32.const:3" module.wasm
+Returned:
+  -> 8 (i32)
+```
+
+## WASI implementation
+
+### Supported WASI functions
+
+The WASI implementation supports:
+- Command-line argument access
+- Environment variable access
+- File system operations via preopened directories
+- Standard input/output/error
+
+### Exit codes
+
+WASI modules can exit with custom exit codes:
+
+```bash
+wasm --wasi --execute "_start" app.wasm
+echo $?  # Prints the exit code
+```
+
+<Note>
+If a WASM trap contains `exit:N`, the utility returns the negated exit code. For example, `exit:0` returns 0, and `exit:1` returns -1.
+</Note>
+
+## Error handling
+
+### Parse errors
+
+```bash
+$ wasm invalid.wasm
+Failed to open invalid.wasm: No such file or directory
+```
+
+### Link errors
+
+```bash
+$ wasm --instantiate module.wasm
+Linking main module failed
+Missing import 'env.memory'
+```
+
+### Runtime traps
+
+```bash
+$ wasm --execute "divide" --arg "i32.const:10" --arg "i32.const:0" module.wasm
+Execution trapped: integer divide by zero
+```
+
+## Advanced features
+
+### Module linking
+
+You can link multiple WASM modules to resolve imports:
+
+```bash
+wasm --link lib1.wasm --link lib2.wasm --execute "main" app.wasm
+```
+
+Modules are linked in order, and exports from earlier modules can satisfy imports in later modules.
+
+### Bytecode inspection
+
+Inspect compiled bytecode for specific functions:
+
+```bash
+wasm --instantiate --print-function 5 module.wasm
+```
+
+Output includes:
+- Instruction pointer
+- Register allocations
+- Source/destination mappings
+
+### JavaScript callbacks
+
+WASM modules can call back into JavaScript:
+
+```bash
+wasm --export-js "env.callback(x:i32):i32=x * 2" \
+     --execute "process" module.wasm
+```
+
+The JavaScript function is compiled and executed when the WASM module calls the import.
+
+## Platform support
+
+**Linux/macOS:** Full support including WASI.
+
+**Windows:** Basic WASM support without WASI functionality.
+
+## Implementation details
+
+### WebAssembly engine
+
+The utility uses LibWasm, Ladybird's WebAssembly implementation:
+- Full WebAssembly 1.0 support
+- Bytecode interpreter
+- Register allocation optimization
+- Module validation
+
+### JavaScript integration
+
+JavaScript exports are compiled using LibJS and executed through the bytecode interpreter. Type conversions are automatic:
+- WASM integers → JS numbers
+- WASM floats → JS numbers
+- WASM v128 → JS BigInt
+
+## Related utilities
+
+- **js** - JavaScript interpreter (can execute WASM-generated JS glue code)
+- **test262-runner** - Test runner that may include WASM-related tests
+
+## Source code
+
+Source file: `Utilities/wasm.cpp`

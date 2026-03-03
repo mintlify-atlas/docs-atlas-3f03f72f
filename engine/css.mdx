@@ -1,0 +1,580 @@
+---
+title: CSS implementation and parsing
+description: Deep dive into Ladybird's CSS engine including parsing, properties, selectors, and the cascade algorithm
+---
+
+Ladybird's CSS implementation provides comprehensive support for modern CSS features including parsing, property handling, selectors, and the cascade. The implementation is designed to closely follow CSS specifications with automatic code generation from JSON definitions.
+
+## Architecture overview
+
+The CSS engine is organized into several interconnected systems:
+
+<CardGroup cols={2}>
+  <Card title="Parser" icon="code">
+    Tokenization and parsing of CSS stylesheets
+  </Card>
+  <Card title="Properties" icon="list">
+    Property definitions and value handling
+  </Card>
+  <Card title="Selectors" icon="bullseye">
+    Element matching and specificity
+  </Card>
+  <Card title="Cascade" icon="layer-group">
+    Style resolution and inheritance
+  </Card>
+</CardGroup>
+
+## CSS parsing
+
+The CSS parser (`CSS/Parser/`) converts text into structured data:
+
+### Tokenization
+
+The tokenizer (`Parser/Tokenizer.h`) breaks CSS into tokens:
+
+```cpp
+class Tokenizer {
+    Token next_token();
+    // Produces tokens from CSS source
+};
+```
+
+**Token types**:
+- **Identifiers**: Property names, keywords
+- **Functions**: `rgb()`, `calc()`, `var()`
+- **Strings**: Text in quotes
+- **Numbers**: With or without units
+- **Delimiters**: `:`, `;`, `,`, `{`, `}`
+- **At-keywords**: `@media`, `@keyframes`, `@font-face`
+
+### Component values
+
+Parsed CSS is represented as component values (`Parser/ComponentValue.h`):
+
+```cpp
+class ComponentValue {
+    // Base class for all parsed CSS values
+};
+
+class Block : public ComponentValue {
+    Vector<ComponentValue> values;
+    // Represents {...}, [...], or (...)
+};
+
+class Function : public ComponentValue {
+    String name;
+    Vector<ComponentValue> values;
+    // Represents func(...)
+};
+```
+
+### Parser structure
+
+The main parser (`Parser/Parser.h`) handles CSS grammar:
+
+```cpp
+class Parser {
+    // Parse full stylesheets
+    RefPtr<CSSStyleSheet> parse_stylesheet();
+    
+    // Parse specific constructs
+    RefPtr<CSSRule> parse_rule();
+    RefPtr<CSSStyleDeclaration> parse_declaration_block();
+    RefPtr<Selector> parse_selector();
+    RefPtr<StyleValue> parse_css_value();
+};
+```
+
+<Info>
+The parser follows the CSS Syntax Module specification, using a token stream and component value representation that matches the spec's algorithms.
+</Info>
+
+## Property system
+
+CSS properties are defined in JSON files and generated into C++ code.
+
+### Properties.json
+
+The central property definition file (`CSS/Properties.json`) contains metadata for all CSS properties:
+
+```json
+{
+  "color": {
+    "inherited": true,
+    "initial": "canvastext",
+    "valid-types": ["color"],
+    "animation-type": "by-computed-value"
+  },
+  "display": {
+    "inherited": false,
+    "initial": "inline",
+    "valid-types": ["display"],
+    "animation-type": "discrete"
+  }
+}
+```
+
+**Property metadata fields**:
+
+| Field | Description |
+|-------|-------------|
+| `inherited` | Whether the property inherits by default |
+| `initial` | The initial value if not specified |
+| `valid-types` | What value types the property accepts |
+| `valid-identifiers` | Keyword values accepted |
+| `animation-type` | How the property animates |
+| `affects-layout` | Whether changes invalidate layout |
+| `requires-computation` | When value computation is needed |
+
+### Generated files
+
+From `Properties.json`, the build system generates:
+
+- `PropertyID.h/cpp`: Enum of all properties
+- `GeneratedCSSStyleProperties.h/cpp`: Property metadata functions
+- `GeneratedCSSStyleProperties.idl`: JavaScript bindings
+
+```cpp
+enum class PropertyID {
+    Invalid,
+    Color,
+    Display,
+    Width,
+    Height,
+    // ... hundreds more
+};
+```
+
+<Tip>
+When adding a new CSS property, you only need to edit `Properties.json`. The C++ code and bindings are generated automatically during the build.
+</Tip>
+
+### Property parsing
+
+Custom property parsing goes in `CSS/Parser/PropertyParsing.cpp`:
+
+```cpp
+RefPtr<StyleValue> Parser::parse_css_value(PropertyID property_id) {
+    switch (property_id) {
+    case PropertyID::BorderRadius:
+        return parse_border_radius_value();
+    case PropertyID::Transform:
+        return parse_transform_value();
+    // Complex properties need custom parsing
+    default:
+        // Simple properties use automatic parsing
+        return parse_css_value_for_property(property_id);
+    }
+}
+```
+
+**Many properties are parsed automatically** from their `Properties.json` definition. Custom parsing is only needed for complex grammars.
+
+## CSS values
+
+CSS values are represented by `StyleValue` subclasses (`CSS/StyleValues/`):
+
+### Value types
+
+```cpp
+class StyleValue {
+    virtual String to_string() const = 0;
+    virtual bool equals(StyleValue const&) const = 0;
+};
+
+class KeywordStyleValue : public StyleValue {
+    Keyword keyword();  // auto, none, inherit, etc.
+};
+
+class LengthStyleValue : public StyleValue {
+    Length length();    // 10px, 2em, 50%, etc.
+};
+
+class ColorStyleValue : public StyleValue {
+    Color color();      // #fff, rgb(255,0,0), etc.
+};
+
+class CalculatedStyleValue : public StyleValue {
+    // calc(), min(), max(), clamp()
+};
+```
+
+**Common value types**:
+- **Keywords**: `auto`, `none`, `inherit`, `initial`
+- **Lengths**: Pixels, ems, percentages
+- **Colors**: Named, hex, rgb(), hsl()
+- **Images**: `url()`, gradients
+- **Calculations**: `calc()`, `min()`, `max()`, `clamp()`
+- **Lists**: Space or comma separated values
+
+### Computed values
+
+Values go through computation to resolve relative units:
+
+```cpp
+class ComputedProperties {
+    // Input: StyleValue from parsing
+    // Output: Resolved values with absolute units
+    
+    Length width() const;  // Resolves percentages, auto
+    Color color() const;   // Resolves currentColor, system colors
+};
+```
+
+## Selectors
+
+Selectors (`CSS/Selector.h`) determine which elements styles apply to:
+
+```cpp
+class Selector {
+    enum class Type {
+        TagName,         // div, span
+        Id,              // #foo
+        Class,           // .bar
+        Attribute,       // [type="text"]
+        PseudoClass,     // :hover, :first-child
+        PseudoElement,   // ::before, ::after
+    };
+    
+    u32 specificity() const;  // (a, b, c) specificity
+    bool matches(DOM::Element const&) const;
+};
+```
+
+### Selector specificity
+
+Specificity determines which rules win when multiple match:
+
+- **ID selectors**: (1, 0, 0) - `#header`
+- **Class selectors**: (0, 1, 0) - `.button`, `[type="text"]`, `:hover`
+- **Type selectors**: (0, 0, 1) - `div`, `span`, `::before`
+
+```cpp
+// #main .button         -> (1, 1, 0)
+// div.content > p:hover -> (0, 2, 2)
+```
+
+### Pseudo-classes
+
+Defined in `CSS/PseudoClasses.json`:
+
+```json
+{
+  "hover": { "argument": "" },
+  "nth-child": { "argument": "<nth>" },
+  "is": { "argument": "<selector-list>" }
+}
+```
+
+Generated into:
+```cpp
+enum class PseudoClass {
+    Hover,
+    Active,
+    Focus,
+    NthChild,
+    FirstChild,
+    // ...
+};
+```
+
+### Pseudo-elements
+
+Defined in `CSS/PseudoElements.json`:
+
+```json
+{
+  "before": {
+    "type": "identifier",
+    "property-whitelist": ["#font-properties", "color", "content"]
+  }
+}
+```
+
+Pseudo-elements create additional boxes:
+- `::before` - Insert content before element
+- `::after` - Insert content after element
+- `::first-line` - Style first line of text
+- `::first-letter` - Style first letter
+- `::selection` - Style selected text
+
+## The cascade
+
+The cascade determines the final computed style for each element:
+
+### Cascade algorithm
+
+1. **Collect declarations**: Gather all matching rules
+2. **Sort by origin and importance**:
+   - User-agent important declarations
+   - User important declarations
+   - Author important declarations
+   - Author normal declarations
+   - User normal declarations
+   - User-agent normal declarations
+3. **Sort by specificity**: Higher specificity wins
+4. **Sort by order**: Later declarations win
+
+### Style inheritance
+
+Inherited properties (`Properties.json` with `"inherited": true`) automatically cascade from parent to child:
+
+```cpp
+if (property.is_inherited() && !has_declaration) {
+    value = parent_computed_values.get(property_id);
+}
+```
+
+**Commonly inherited**:
+- `color`, `font-family`, `font-size`
+- `line-height`, `text-align`
+- `visibility`, `cursor`
+
+**Not inherited**:
+- `width`, `height`, `margin`, `padding`
+- `border`, `background`, `position`
+- `display`, `overflow`
+
+## Keywords and enums
+
+### Keywords.json
+
+All CSS keywords are defined in `CSS/Keywords.json`:
+
+```json
+[
+  "auto", "none", "inherit", "initial", "unset",
+  "block", "inline", "flex", "grid",
+  "red", "blue", "transparent", "currentcolor"
+]
+```
+
+Generated into:
+```cpp
+enum class Keyword {
+    Auto,
+    None,
+    Inherit,
+    // ...
+};
+```
+
+### Enums.json
+
+Grouped keyword sets become enums (`CSS/Enums.json`):
+
+```json
+{
+  "line-style": ["none", "hidden", "dotted", "dashed", "solid", "double"],
+  "overflow": ["visible", "hidden", "scroll", "auto"]
+}
+```
+
+Generated into:
+```cpp
+enum class LineStyle {
+    None, Hidden, Dotted, Dashed, Solid, Double
+};
+
+enum class Overflow {
+    Visible, Hidden, Scroll, Auto
+};
+```
+
+## Adding or modifying properties
+
+As documented in `Documentation/CSSProperties.md`, adding a CSS property involves:
+
+### 1. Update JSON data
+
+Edit `CSS/Properties.json`:
+```json
+{
+  "my-new-property": {
+    "inherited": false,
+    "initial": "auto",
+    "valid-types": ["length", "percentage"],
+    "valid-identifiers": ["auto", "none"],
+    "animation-type": "by-computed-value"
+  }
+}
+```
+
+### 2. Add custom parsing (if needed)
+
+Most properties parse automatically. For complex ones, add to `CSS/Parser/PropertyParsing.cpp`:
+
+```cpp
+RefPtr<StyleValue> Parser::parse_my_new_property_value() {
+    // Custom parsing logic
+}
+```
+
+### 3. Add computed value getter
+
+In `CSS/ComputedValues.h`:
+```cpp
+class ComputedValues {
+    LengthOrCalculated my_new_property() const;
+};
+```
+
+### 4. Use the property
+
+In layout or painting code:
+```cpp
+auto value = computed_values.my_new_property();
+// Use the computed value
+```
+
+<Note>
+The build system automatically regenerates C++ code from JSON files. No manual enum editing needed!
+</Note>
+
+## Media queries
+
+Media features are defined in `CSS/MediaFeatures.json`:
+
+```json
+{
+  "width": {
+    "type": "range",
+    "values": ["<length>"]
+  },
+  "prefers-color-scheme": {
+    "type": "discrete",
+    "values": ["light", "dark"],
+    "false-keywords": []
+  }
+}
+```
+
+Media queries enable responsive design:
+```css
+@media (min-width: 768px) {
+    .container { width: 750px; }
+}
+
+@media (prefers-color-scheme: dark) {
+    body { background: black; color: white; }
+}
+```
+
+## At-rules
+
+At-rules like `@font-face`, `@media`, `@keyframes` are defined in `CSS/Descriptors.json`:
+
+```json
+{
+  "@font-face": {
+    "spec": "https://drafts.csswg.org/css-fonts/#font-face-rule",
+    "descriptors": {
+      "font-family": {
+        "syntax": ["<family-name>"],
+        "initial": "n/a"
+      },
+      "src": {
+        "syntax": ["<url>", "local(<family-name>)"]
+      }
+    }
+  }
+}
+```
+
+## Transform functions
+
+CSS transforms are defined in `CSS/TransformFunctions.json`:
+
+```json
+{
+  "translate": {
+    "parameters": [
+      { "type": "<length-percentage>", "required": true },
+      { "type": "<length-percentage>", "required": false }
+    ]
+  },
+  "rotate": {
+    "parameters": [
+      { "type": "<angle>", "required": true }
+    ]
+  }
+}
+```
+
+## Math functions
+
+CSS math functions (`CSS/MathFunctions.json`):
+
+```json
+{
+  "calc": {
+    "parameters": [
+      { "name": "expression", "type": "<calc-sum>", "required": true }
+    ]
+  },
+  "clamp": {
+    "parameter-validation": "consistent",
+    "parameters": [
+      { "name": "min", "type": "<calc-sum>", "required": true },
+      { "name": "val", "type": "<calc-sum>", "required": true },
+      { "name": "max", "type": "<calc-sum>", "required": true }
+    ]
+  }
+}
+```
+
+## Units
+
+All CSS units are defined in `CSS/Units.json`:
+
+```json
+{
+  "length": {
+    "px": { "is-canonical-unit": true },
+    "em": { "is-relative-to": "font" },
+    "rem": { "is-relative-to": "font" },
+    "vw": { "is-relative-to": "viewport" },
+    "cm": { "number-of-canonical-unit": 37.795275591 },
+    "in": { "number-of-canonical-unit": 96 }
+  },
+  "angle": {
+    "deg": { "is-canonical-unit": true },
+    "rad": { "number-of-canonical-unit": 57.295779513 },
+    "grad": { "number-of-canonical-unit": 0.9 },
+    "turn": { "number-of-canonical-unit": 360 }
+  }
+}
+```
+
+## Quirks mode
+
+CSS quirks mode provides compatibility with old browsers:
+
+- **Hashless hex colors**: `color: fff` instead of `#fff`
+- **Unitless lengths**: `width: 100` instead of `100px`
+
+```cpp
+enum class QuirksMode {
+    No,      // Standards mode
+    Limited, // Almost standards mode
+    Yes      // Quirks mode
+};
+```
+
+<Warning>
+Quirks mode is for compatibility only. New content should always use standards mode with a proper DOCTYPE.
+</Warning>
+
+## Related components
+
+<CardGroup cols={3}>
+  <Card title="LibWeb" href="/engine/libweb">
+    Overall rendering engine architecture
+  </Card>
+  <Card title="DOM" href="/engine/dom">
+    Document structure and elements
+  </Card>
+  <Card title="Layout">
+    How computed styles become visual boxes
+  </Card>
+</CardGroup>

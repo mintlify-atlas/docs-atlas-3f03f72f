@@ -1,0 +1,290 @@
+---
+title: JavaScript utility
+description: Standalone JavaScript interpreter with REPL support for Ladybird Browser
+---
+
+The `js` utility is a command-line JavaScript interpreter that implements the ECMAScript specification. It provides both a REPL (Read-Eval-Print Loop) for interactive JavaScript execution and script execution capabilities.
+
+## Usage
+
+### Basic syntax
+
+```bash
+js [options] [scripts...]
+```
+
+### Interactive REPL
+
+Launch the REPL by running `js` without arguments:
+
+```bash
+js
+```
+
+The REPL provides:
+- Line editing with syntax highlighting
+- Multi-line input support
+- Command history (saved to `~/.js-history`)
+- Auto-completion for variables and properties
+
+### Execute scripts
+
+```bash
+js script.js
+js script1.js script2.js  # Concatenates sources
+```
+
+### Evaluate inline code
+
+```bash
+js -c "console.log('Hello, World!')"
+```
+
+## Command-line options
+
+### Script execution options
+
+| Option | Description |
+|--------|-------------|
+| `-c, --evaluate <script>` | Evaluate the provided string as JavaScript code |
+| `-m, --as-module` | Treat input as an ES module instead of a script |
+| `-p, --parse-only` | Parse the script without executing it |
+| `-l, --print-last-result` | Print the last expression result |
+
+### Debugging options
+
+| Option | Description |
+|--------|-------------|
+| `-A, --dump-ast` | Print the Abstract Syntax Tree |
+| `-d, --dump-bytecode` | Print the compiled bytecode |
+| `-i, --disable-ansi-colors` | Disable colored output |
+| `-h, --disable-source-location-hints` | Disable source location hints in errors |
+| `-g, --gc-on-every-allocation` | Run garbage collection after every allocation (for testing) |
+| `--disable-debug-output` | Disable debug output |
+
+### Display options
+
+| Option | Description |
+|--------|-------------|
+| `-s, --no-syntax-highlight` | Disable live syntax highlighting in REPL |
+| `-r, --raw-strings` | Display strings without quotes or escape sequences |
+
+### Test262 support
+
+| Option | Description |
+|--------|-------------|
+| `--use-test262-global` | Use Test262 global object (`$262`) for test compatibility |
+
+<Info>
+The `--use-test262-global` option enables the Test262 global object, which provides functions like `$262.createRealm()` and `$262.evalScript()` required by the official ECMAScript Test262 suite.
+</Info>
+
+## REPL commands
+
+The REPL provides several built-in commands:
+
+### exit([code])
+
+Exit the REPL with an optional exit code (defaults to 0).
+
+```javascript
+exit()
+exit(1)  // Exit with error code
+```
+
+### help()
+
+Display available REPL commands.
+
+```javascript
+help()
+```
+
+### print(value)
+
+Pretty-print a JavaScript value.
+
+```javascript
+print({ name: "Ladybird", version: 1.0 })
+```
+
+### loadINI(file)
+
+Load an INI file and return its contents as a JavaScript object.
+
+```javascript
+const config = loadINI("config.ini")
+```
+
+### loadJSON(file)
+
+Load and parse a JSON file.
+
+```javascript
+const data = loadJSON("data.json")
+```
+
+### save(file)
+
+Save REPL input history to a file.
+
+```javascript
+save("session.js")
+```
+
+## Special variables
+
+### _
+
+Access the result of the last expression:
+
+```javascript
+> 2 + 2
+4
+> _ * 2
+8
+```
+
+<Warning>
+Assigning to `_` disables the automatic last value tracking. You'll need to restart the REPL to re-enable it.
+</Warning>
+
+### global
+
+Reference to the global object:
+
+```javascript
+global.myVar = 42
+```
+
+## Examples
+
+### Running a JavaScript file
+
+```bash
+js calculator.js
+```
+
+### Executing code with modules
+
+```bash
+js --as-module module.js
+```
+
+### Debugging bytecode
+
+```bash
+js --dump-bytecode --dump-ast script.js
+```
+
+### Testing with raw output
+
+```bash
+js --disable-ansi-colors --print-last-result script.js
+```
+
+### Interactive exploration
+
+```bash
+js
+> const arr = [1, 2, 3, 4, 5]
+> arr.map(x => x * 2)
+[2, 4, 6, 8, 10]
+> _
+[2, 4, 6, 8, 10]
+> save("my-session.js")
+```
+
+## Features
+
+### Syntax highlighting
+
+The REPL automatically highlights JavaScript syntax:
+- **Keywords** in blue
+- **Strings** in green
+- **Numbers** in magenta
+- **Control keywords** in cyan
+- **Identifiers** in white
+
+<Tip>
+Disable syntax highlighting with the `--no-syntax-highlight` option if you're piping output or prefer plain text.
+</Tip>
+
+### Error reporting
+
+Detailed error messages with source location:
+
+```javascript
+> function test() { return x; }
+> test()
+Uncaught exception: ReferenceError: x is not defined
+    at test (REPL:1:24)
+```
+
+### Multi-line input
+
+The REPL automatically handles multi-line expressions:
+
+```javascript
+> function factorial(n) {
+.     if (n <= 1) return 1;
+.     return n * factorial(n - 1);
+. }
+> factorial(5)
+120
+```
+
+### Promise tracking
+
+The interpreter warns about unhandled promise rejections:
+
+```javascript
+> Promise.reject("error")
+WARNING: A promise was rejected without any handlers (result: error)
+```
+
+## Implementation details
+
+### Global objects
+
+The `js` utility provides two global object types:
+
+1. **ReplObject** - Used in REPL mode, includes REPL-specific functions
+2. **ScriptObject** - Used in script mode, minimal global environment
+
+### JavaScript engine
+
+The utility uses LibJS, Ladybird's JavaScript engine:
+- Full ECMAScript support
+- Bytecode compilation and interpretation
+- Garbage collection
+- ES modules support
+
+### Console object
+
+Full console API support:
+
+```javascript
+console.log("Message")
+console.warn("Warning")
+console.error("Error")
+console.table([{a: 1}, {a: 2}])
+console.group("Group")
+```
+
+## Platform support
+
+<Note>
+**Windows:** REPL functionality is not supported on Windows due to LibLine dependency. Script execution works normally.
+</Note>
+
+**Linux/macOS:** Full support including REPL with line editing and history.
+
+## Related utilities
+
+- **test262-runner** - Automated Test262 test suite runner
+- **wasm** - WebAssembly runtime with JavaScript integration
+
+## Source code
+
+Source file: `Utilities/js.cpp`

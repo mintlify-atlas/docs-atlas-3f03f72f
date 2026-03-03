@@ -1,80 +1,158 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Get Ladybird up and running quickly on your system
 ---
 
-## Get started in three steps
+This guide will help you build and run Ladybird Browser on your machine. For detailed build options, see the [complete build instructions](/building/build-instructions).
 
-Get your documentation site running locally and make your first customization.
+<Note>
+Ladybird is in pre-alpha state and only suitable for developers. You'll need to build from source.
+</Note>
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+Before building Ladybird, ensure you have:
+
+- **C++23-capable compiler**: gcc-14 or clang-21 (see [build instructions](/building/build-instructions) for minimum versions)
+- **CMake 3.30 or newer**
+- **Rust toolchain** (install via [rustup](https://rustup.rs/))
+- **Qt6 development packages**
+- **Build tools**: nasm, ninja, git
+
+<Tabs>
+  <Tab title="Debian/Ubuntu">
+    ```bash
+    sudo apt install autoconf autoconf-archive automake build-essential ccache cmake curl \
+      fonts-liberation2 git libdrm-dev libgl1-mesa-dev libtool nasm ninja-build pkg-config \
+      python3-venv qt6-base-dev qt6-tools-dev-tools qt6-wayland tar unzip zip
+    ```
+  </Tab>
+  
+  <Tab title="Arch Linux">
+    ```bash
+    sudo pacman -S --needed autoconf-archive base-devel ccache cmake curl git less libgl \
+      nasm ninja python qt6-base qt6-tools ttf-liberation tar unzip zip
+    ```
+  </Tab>
+  
+  <Tab title="macOS">
+    ```bash
+    brew install nasm autoconf autoconf-archive automake ninja cmake llvm@18 ccache pkg-config
+    ```
+  </Tab>
+  
+  <Tab title="Fedora">
+    ```bash
+    sudo dnf install autoconf-archive automake ccache cmake curl git libdrm-devel \
+      liberation-sans-fonts libglvnd-devel libtool nasm ninja-build qt6-qtbase-devel \
+      qt6-qttools-devel qt6-qtwayland-devel tar unzip zip
+    ```
+  </Tab>
+</Tabs>
+
+## Build and run
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/LadybirdBrowser/ladybird
+    cd ladybird
+    ```
+  </Step>
+
+  <Step title="Build with the helper script">
+    The `ladybird.py` script automates the build process:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    # Build with default options
+    ./ladybird.py build
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    # Build and run
+    ./ladybird.py run ladybird
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <Info>
+    By default, this builds a debug configuration. For better performance, use `./ladybird.py build --release`.
+    </Info>
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Launch Ladybird">
+    After building, run the browser:
+    
+    ```bash
+    ./ladybird.py run ladybird
+    ```
+    
+    Or directly execute the binary:
+    
+    ```bash
+    ./Build/release/bin/Ladybird
+    ```
+  </Step>
+</Steps>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+## Build configurations
 
-### Step 3: Go live
+### Debug vs Release
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+```bash
+# Debug build (default) - includes debugging symbols
+./ladybird.py build
+
+# Release build - optimized for performance
+./ladybird.py build --release
+```
+
+### User interface options
+
+Ladybird supports multiple UI backends:
+
+<CodeGroup>
+```bash Qt (default)
+./ladybird.py build
+```
+
+```bash AppKit (macOS)
+./ladybird.py build --ui AppKit
+```
+
+```bash Android
+./ladybird.py build --ui Android
+```
+</CodeGroup>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Build instructions" icon="hammer" href="/building/build-instructions">
+    Detailed build options and platform-specific instructions
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Learn about Ladybird's multi-process architecture
+  </Card>
+  
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Start contributing to the project
+  </Card>
+  
+  <Card title="Troubleshooting" icon="wrench" href="/building/troubleshooting">
+    Resolve common build issues
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Troubleshooting
+
+<Accordion title="Build fails with CMake version error">
+  Install CMake 3.30 or newer. On Ubuntu, use [Kitware's apt repository](https://apt.kitware.com/).
+</Accordion>
+
+<Accordion title="Compiler not supported">
+  Ladybird requires gcc-14 or clang-21 minimum. See the [build instructions](/building/build-instructions#build-prerequisites) for installation.
+</Accordion>
+
+<Accordion title="Qt6 not found">
+  Ensure Qt6 development packages are installed. On macOS, you may need to install Qt6 via Homebrew.
+</Accordion>
+
+For more troubleshooting help, see the [troubleshooting guide](/building/troubleshooting) or ask in the [Discord server](https://discord.gg/nvfjVJ4Svh).

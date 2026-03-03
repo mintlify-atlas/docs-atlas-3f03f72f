@@ -1,0 +1,416 @@
+---
+title: WebDriver service
+description: Browser automation service implementing the W3C WebDriver protocol for testing and control
+---
+
+WebDriver is a standalone service that implements the W3C WebDriver protocol, enabling automated testing and programmatic control of Ladybird browser instances.
+
+## Overview
+
+WebDriver provides:
+
+- W3C WebDriver protocol implementation
+- Browser automation for testing
+- Remote browser control
+- Session management
+- Multi-window/tab support
+
+<Info>
+WebDriver allows you to control Ladybird programmatically for automated testing, scraping, and browser automation tasks.
+</Info>
+
+## Architecture
+
+WebDriver runs as a TCP server that accepts connections from test frameworks and automation tools.
+
+### Key components
+
+#### Client
+
+Handles WebDriver HTTP requests and maps them to browser actions:
+
+```cpp
+class Client : public Web::WebDriver::Client {
+    LaunchBrowserCallback m_launch_browser_callback;
+};
+```
+
+Implements all W3C WebDriver endpoints:
+
+- Session management
+- Navigation commands
+- Element interaction
+- Script execution
+- Cookie management
+- Screenshot capture
+
+Located in `Services/WebDriver/Client.h:22`
+
+#### Session
+
+Manages a browser automation session:
+
+```cpp
+class Session : public RefCounted<Session> {
+    String session_id() const;
+    Web::WebDriver::SessionFlags session_flags() const;
+    String const& current_window_handle() const;
+    HashMap<String, Window> m_windows;
+};
+```
+
+Features:
+
+- Unique session ID
+- Multiple window management
+- Timeouts configuration
+- Page load strategy
+- Capabilities negotiation
+
+Located in `Services/WebDriver/Session.h:28`
+
+#### WebContentConnection
+
+Bridges WebDriver to WebContent processes:
+
+```cpp
+class WebContentConnection {
+    // Communicates with WebContent for automation
+};
+```
+
+Each browser window has its own connection to a WebContent process.
+
+Located in `Services/WebDriver/WebContentConnection.h`
+
+## Starting WebDriver
+
+Launch WebDriver with custom options:
+
+```bash
+WebDriver --port=4444 --listen-address=127.0.0.1
+```
+
+### Configuration options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--port` | 8000 | TCP port to listen on |
+| `--listen-address` | 0.0.0.0 | IP address to bind to |
+| `--headless` | false | Run browser without GUI |
+| `--certificate` | - | Path to TLS certificate |
+| `--force-cpu-painting` | false | Disable GPU acceleration |
+| `--expose-experimental-interfaces` | false | Enable experimental web features |
+| `--debug-process` | - | Wait for debugger on specific process |
+| `--default-time-zone` | - | Set default timezone |
+
+## Creating a session
+
+Clients create sessions by sending a POST request:
+
+```http
+POST /session HTTP/1.1
+Content-Type: application/json
+
+{
+  "capabilities": {
+    "alwaysMatch": {
+      "browserName": "ladybird"
+    }
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "value": {
+    "sessionId": "abc123",
+    "capabilities": {
+      "browserName": "ladybird",
+      "browserVersion": "1.0",
+      "platformName": "linux"
+    }
+  }
+}
+```
+
+## W3C WebDriver endpoints
+
+WebDriver implements the full W3C specification:
+
+### Session commands
+
+- `POST /session` - Create new session
+- `DELETE /session/{id}` - Delete session
+- `GET /status` - Server status
+
+### Navigation
+
+- `POST /session/{id}/url` - Navigate to URL
+- `GET /session/{id}/url` - Get current URL
+- `POST /session/{id}/back` - Navigate back
+- `POST /session/{id}/forward` - Navigate forward
+- `POST /session/{id}/refresh` - Reload page
+- `GET /session/{id}/title` - Get page title
+
+### Window management
+
+- `GET /session/{id}/window` - Get window handle
+- `DELETE /session/{id}/window` - Close window
+- `POST /session/{id}/window` - Switch to window
+- `GET /session/{id}/window/handles` - List all windows
+- `POST /session/{id}/window/new` - Open new window
+- `GET /session/{id}/window/rect` - Get window position/size
+- `POST /session/{id}/window/rect` - Set window position/size
+- `POST /session/{id}/window/maximize` - Maximize window
+- `POST /session/{id}/window/minimize` - Minimize window
+- `POST /session/{id}/window/fullscreen` - Enter fullscreen
+
+### Element interaction
+
+- `POST /session/{id}/element` - Find element
+- `POST /session/{id}/elements` - Find elements
+- `POST /session/{id}/element/{id}/element` - Find from element
+- `POST /session/{id}/element/{id}/click` - Click element
+- `POST /session/{id}/element/{id}/clear` - Clear element
+- `POST /session/{id}/element/{id}/value` - Send keys to element
+- `GET /session/{id}/element/{id}/text` - Get element text
+- `GET /session/{id}/element/{id}/property/{name}` - Get property
+- `GET /session/{id}/element/{id}/attribute/{name}` - Get attribute
+- `GET /session/{id}/element/{id}/css/{name}` - Get CSS value
+
+### Script execution
+
+- `POST /session/{id}/execute/sync` - Execute JavaScript
+- `POST /session/{id}/execute/async` - Execute async JavaScript
+
+### Screenshots
+
+- `GET /session/{id}/screenshot` - Capture page screenshot
+- `GET /session/{id}/element/{id}/screenshot` - Capture element screenshot
+
+### Cookies
+
+- `GET /session/{id}/cookie` - Get all cookies
+- `GET /session/{id}/cookie/{name}` - Get named cookie
+- `POST /session/{id}/cookie` - Add cookie
+- `DELETE /session/{id}/cookie/{name}` - Delete cookie
+- `DELETE /session/{id}/cookie` - Delete all cookies
+
+## Browser launching
+
+WebDriver launches browser instances on-demand:
+
+```cpp
+using LaunchBrowserCallback = Function<ErrorOr<Core::Process>(
+    ByteString const& socket_path, 
+    bool headless
+)>;
+```
+
+Process:
+
+1. Client requests new session
+2. WebDriver creates IPC socket
+3. Browser process is spawned with socket path
+4. Browser connects back to WebDriver
+5. Session is established
+
+Located in `Services/WebDriver/Client.h:20`
+
+<Tip>
+WebDriver automatically manages browser process lifecycle, starting and stopping instances as needed.
+</Tip>
+
+## Session management
+
+### Session flags
+
+Sessions can have different modes:
+
+- **Default**: Standard browser session
+- **Headless**: No graphical interface
+- **BidiMode**: Bidirectional protocol support
+
+### Timeouts
+
+Configure various timeout values:
+
+```json
+{
+  "script": 30000,
+  "pageLoad": 300000,
+  "implicit": 0
+}
+```
+
+### Page load strategy
+
+- **none**: Return immediately
+- **eager**: Return when DOMContentLoaded fires
+- **normal**: Return when page fully loads (default)
+
+## Async actions
+
+WebDriver handles asynchronous browser operations:
+
+```cpp
+template<typename Action>
+Web::WebDriver::Response perform_async_action(Action&& action) {
+    Optional<Web::WebDriver::Response> response;
+    auto& connection = web_content_connection();
+    
+    connection.on_driver_execution_complete = [&](auto result) {
+        response = move(result);
+    };
+    
+    TRY(action(connection));
+    
+    Core::EventLoop::current().spin_until([&]() {
+        return response.has_value();
+    });
+    
+    return response.release_value();
+}
+```
+
+Located in `Services/WebDriver/Session.h:67`
+
+## Element location strategies
+
+Supported locator strategies:
+
+- **CSS selector**: `.class #id element`
+- **Link text**: Exact link text match
+- **Partial link text**: Partial link text match
+- **Tag name**: HTML tag name
+- **XPath**: XPath expression
+
+## JavaScript execution
+
+Execute arbitrary JavaScript in the page context:
+
+```python
+# Python example using Selenium
+result = driver.execute_script("""
+    return document.title;
+""")
+```
+
+Async execution with callbacks:
+
+```python
+result = driver.execute_async_script("""
+    const callback = arguments[0];
+    setTimeout(() => callback('done'), 1000);
+""")
+```
+
+## File uploads
+
+WebDriver supports file input elements:
+
+```python
+file_input = driver.find_element(By.CSS_SELECTOR, 'input[type=file]')
+file_input.send_keys('/path/to/file.txt')
+```
+
+## Testing frameworks
+
+WebDriver works with popular testing frameworks:
+
+### Selenium (Python)
+
+```python
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+
+options = webdriver.ChromeOptions()
+options.binary_location = '/path/to/Ladybird'
+
+driver = webdriver.Remote(
+    command_executor='http://localhost:4444',
+    options=options
+)
+
+driver.get('https://example.com')
+element = driver.find_element(By.ID, 'search')
+element.send_keys('test')
+driver.quit()
+```
+
+### WebdriverIO (JavaScript)
+
+```javascript
+const { remote } = require('webdriverio');
+
+const browser = await remote({
+    hostname: 'localhost',
+    port: 4444,
+    capabilities: {
+        browserName: 'ladybird'
+    }
+});
+
+await browser.url('https://example.com');
+const title = await browser.getTitle();
+await browser.deleteSession();
+```
+
+## Capabilities
+
+WebDriver supports various capabilities:
+
+```json
+{
+  "browserName": "ladybird",
+  "browserVersion": "1.0",
+  "platformName": "linux",
+  "acceptInsecureCerts": false,
+  "pageLoadStrategy": "normal",
+  "strictFileInteractability": false,
+  "unhandledPromptBehavior": "dismiss",
+  "ladybird:options": {
+    "binary": "/path/to/Ladybird",
+    "args": ["--headless"]
+  }
+}
+```
+
+## Error handling
+
+WebDriver returns standard error codes:
+
+- **invalid session id**: Session not found
+- **no such element**: Element doesn't exist
+- **stale element reference**: Element no longer in DOM
+- **element not interactable**: Element cannot be interacted with
+- **javascript error**: Script execution failed
+- **timeout**: Operation exceeded timeout
+
+## Security considerations
+
+<Warning>
+WebDriver provides full browser control. Only expose it on trusted networks or use authentication.
+</Warning>
+
+- Bind to localhost for local testing
+- Use firewall rules for network access
+- Consider authentication for remote access
+- Disable site isolation (required for WebDriver)
+
+## Performance tips
+
+- Reuse sessions when possible
+- Use headless mode for CI/CD
+- Configure appropriate timeouts
+- Minimize screenshot usage
+- Batch element lookups
+
+## Related services
+
+- **WebContent**: Controlled by WebDriver for automation
+- **Browser**: Launched by WebDriver for each session
+- **RequestServer**: Handles network requests during automation

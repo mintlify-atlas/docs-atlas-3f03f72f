@@ -1,0 +1,268 @@
+---
+title: AK standard library
+description: AK is Ladybird's foundational standard library providing containers, smart pointers, strings, and utilities used throughout the browser codebase.
+---
+
+AK (short for "Agner's Kit") is Ladybird's custom standard library that provides fundamental data structures, smart pointers, string types, and utility classes. Every component in Ladybird depends on AK for basic functionality.
+
+## Core containers
+
+AK provides efficient, modern C++ containers designed for browser development.
+
+### Vector
+
+`Vector<T>` is a dynamic array similar to `std::vector` but with Ladybird-specific optimizations:
+
+```cpp
+Vector<String> items;
+items.append("Hello"_string);
+items.append("World"_string);
+
+for (auto const& item : items) {
+    dbgln("Item: {}", item);
+}
+```
+
+Key methods:
+- `append()` - Add element to end
+- `prepend()` - Add element to beginning  
+- `insert()` - Insert at specific index
+- `remove()` - Remove by index
+- `find()` - Search for element
+- `size()` - Get element count
+
+### HashMap
+
+`HashMap<K, V>` provides hash-based key-value storage:
+
+```cpp
+HashMap<String, int> scores;
+scores.set("Alice"_string, 100);
+scores.set("Bob"_string, 95);
+
+if (auto score = scores.get("Alice"_string); score.has_value()) {
+    dbgln("Alice's score: {}", *score);
+}
+```
+
+### Other containers
+
+<CardGroup cols={2}>
+  <Card title="HashTable" icon="table">
+    Hash-based set for unique values
+  </Card>
+  <Card title="Optional" icon="circle-question">
+    Type-safe nullable value wrapper
+  </Card>
+  <Card title="Variant" icon="code-branch">
+    Type-safe union holding one of several types
+  </Card>
+  <Card title="Span" icon="arrows-left-right">
+    Non-owning view over contiguous data
+  </Card>
+</CardGroup>
+
+## Smart pointers
+
+AK includes three main smart pointer types for memory safety.
+
+### OwnPtr and NonnullOwnPtr
+
+Single-owner pointers for exclusive ownership:
+
+```cpp
+// Create using make<T>()
+NonnullOwnPtr<MyClass> obj = make<MyClass>(arg1, arg2);
+
+// For fallible allocation
+auto obj_or_error = try_make<MyClass>();
+if (obj_or_error.is_error()) {
+    // Handle allocation failure
+}
+```
+
+<Note>
+`NonnullOwnPtr` cannot be null, making it perfect for return types and parameters where null is invalid. It's equivalent to passing by reference (`&`) but with ownership transfer.
+</Note>
+
+### RefPtr and NonnullRefPtr
+
+Reference-counted pointers for shared ownership:
+
+```cpp
+class MyObject : public RefCounted<MyObject> {
+    // ...
+};
+
+NonnullRefPtr<MyObject> obj1 = make_ref_counted<MyObject>();
+RefPtr<MyObject> obj2 = obj1; // Reference count is now 2
+```
+
+### WeakPtr
+
+Non-owning pointer that automatically becomes null when the target is deleted:
+
+```cpp
+class Foo : public Weakable<Foo> {
+    // ...
+};
+
+NonnullOwnPtr<Foo> owner = make<Foo>();
+WeakPtr<Foo> weak = owner->make_weak_ptr();
+// weak automatically becomes null when owner is destroyed
+```
+
+## String types
+
+AK provides multiple string types optimized for different use cases.
+
+### String
+
+UTF-8 encoded, reference-counted string with short string optimization:
+
+```cpp
+// From UTF-8
+auto str = String::from_utf8("Hello, World!"sv);
+
+// String literals (compile-time)
+auto str = "Hello"_string;
+
+// Formatting
+auto formatted = String::formatted("Value: {}", 42);
+```
+
+<Info>
+`String` can store short strings (up to 23 bytes) inline without heap allocation, making it very efficient for common use cases.
+</Info>
+
+### StringView
+
+Non-owning view over string data:
+
+```cpp
+void process(StringView text) {
+    // No copying, just a pointer and length
+    dbgln("Processing: {}", text);
+}
+
+String owned = "data"_string;
+process(owned.bytes_as_string_view());
+process("literal"sv);
+```
+
+### StringBuilder
+
+Efficient string building through concatenation:
+
+```cpp
+StringBuilder builder;
+builder.append("Hello "sv);
+builder.append("World"sv);
+builder.appendff(", the answer is {}!", 42);
+
+auto result = builder.to_string();
+```
+
+## Error handling
+
+### ErrorOr\<T\>
+
+Type-safe error handling without exceptions:
+
+```cpp
+ErrorOr<String> read_file(StringView path) {
+    // Return either String or Error
+    return String::from_utf8(data);
+}
+
+// Using TRY macro for error propagation
+ErrorOr<void> process() {
+    auto content = TRY(read_file("/path/to/file"sv));
+    // Use content...
+    return {};
+}
+```
+
+### Result\<T, E\>
+
+Generic result type for operations that can fail:
+
+```cpp
+Result<int, ParseError> parse_number(StringView str) {
+    if (str.is_empty())
+        return ParseError::Empty;
+    return 42;
+}
+```
+
+## String formatting
+
+AK provides `printf`-style formatting with compile-time checking.
+
+```cpp
+// Basic formatting
+auto str = String::formatted("Hello, {}!", "world");
+
+// With format specifiers
+auto hex = String::formatted("0x{:04x}", 255); // "0xff"
+auto aligned = String::formatted("{:>10}", "right");  // "     right"
+
+// Debug output
+dbgln("Value: {}, Hex: {:x}", 42, 42);
+```
+
+<CardGroup cols={3}>
+  <Card title="Type specifiers" icon="hashtag">
+    `b` binary, `d` decimal, `x` hex, `s` string, `p` pointer
+  </Card>
+  <Card title="Alignment" icon="align-left">
+    `<` left, `>` right, `^` center
+  </Card>
+  <Card title="Width & precision" icon="ruler">
+    `{:10}` min width, `{:.4}` precision/max
+  </Card>
+</CardGroup>
+
+## Utilities
+
+### Function
+
+Type-erased callable wrapper:
+
+```cpp
+Function<int(int, int)> operation = [](int a, int b) { return a + b; };
+int result = operation(5, 3); // 8
+```
+
+### Time
+
+High-resolution time with duration types:
+
+```cpp
+auto now = AK::Time::now_monotonic();
+auto duration = AK::Time::from_milliseconds(500);
+auto later = now + duration;
+```
+
+### Badge
+
+Restrict function access to specific classes:
+
+```cpp
+class Foo {
+public:
+    void sensitive_operation(Badge<Manager>) {
+        // Only Manager can call this
+    }
+};
+```
+
+## Source location
+
+- **Repository**: `~/workspace/source/AK/`
+- **Key headers**: `Vector.h`, `HashMap.h`, `String.h`, `NonnullOwnPtr.h`, `RefPtr.h`, `Optional.h`
+- **Documentation**: `~/workspace/source/Documentation/SmartPointers.md`, `~/workspace/source/Documentation/StringFormatting.md`
+
+<Tip>
+AK is designed to have zero dependencies - it doesn't even depend on the C++ standard library for most operations. This makes it highly portable and predictable.
+</Tip>

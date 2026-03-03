@@ -1,0 +1,377 @@
+---
+title: LibJS JavaScript engine
+description: Explore LibJS, Ladybird's ECMAScript-compliant JavaScript engine with bytecode compilation, garbage collection, and modern JS features
+---
+
+LibJS is Ladybird's JavaScript engine, implementing the ECMAScript specification from the ground up. It provides a complete JavaScript runtime with lexing, parsing, bytecode compilation, and execution capabilities.
+
+## Architecture overview
+
+LibJS consists of several key subsystems working together:
+
+<CardGroup cols={2}>
+  <Card title="Lexer & Parser" icon="code">
+    Source code tokenization and AST generation
+  </Card>
+  <Card title="Bytecode compiler" icon="microchip">
+    AST to bytecode compilation and optimization
+  </Card>
+  <Card title="Virtual machine" icon="server">
+    Bytecode execution and runtime management
+  </Card>
+  <Card title="Garbage collector" icon="recycle">
+    Automatic memory management via LibGC
+  </Card>
+</CardGroup>
+
+## Core components
+
+### Lexer and tokenization
+
+The lexer (`Lexer.cpp`, `Lexer.h`) breaks JavaScript source code into tokens:
+
+```cpp
+class Lexer {
+public:
+    Token next();
+    // Tokenizes JavaScript source into structured tokens
+};
+```
+
+The lexer handles:
+- **Keywords**: `function`, `class`, `const`, etc.
+- **Identifiers**: Variable and function names
+- **Literals**: Strings, numbers, booleans, null, undefined
+- **Operators**: Arithmetic, logical, bitwise, assignment
+- **Punctuation**: Braces, brackets, semicolons
+
+### Parser and AST
+
+The parser (`Parser.cpp`, `Parser.h`) transforms tokens into an Abstract Syntax Tree:
+
+```cpp
+class Parser {
+public:
+    NonnullRefPtr<Program> parse_program();
+    // Builds AST from token stream
+};
+```
+
+The AST (`AST.h`, `AST.cpp`) represents the syntactic structure:
+- **Statements**: `if`, `while`, `for`, `return`, etc.
+- **Expressions**: Function calls, binary operations, member access
+- **Declarations**: Variables, functions, classes
+- **Modules**: Import/export statements
+
+<Info>
+The parser is over 200,000 lines and handles all ECMAScript syntax including modern features like async/await, destructuring, and optional chaining.
+</Info>
+
+### Bytecode compilation
+
+LibJS compiles the AST to bytecode for efficient execution:
+
+**Directory structure**:
+```
+LibJS/Bytecode/
+  ├── Op.h              # Bytecode operations
+  ├── Interpreter.cpp   # Bytecode execution
+  ├── Generator.cpp     # AST to bytecode compilation
+  └── BasicBlock.cpp    # Control flow structures
+```
+
+The bytecode system includes:
+- **Operations**: Load, store, arithmetic, jumps, calls
+- **Registers**: Virtual registers for values
+- **Basic blocks**: Control flow graph nodes
+- **Optimizations**: Constant folding, dead code elimination
+
+```cpp
+enum class OpType {
+    Load,
+    Store,
+    Add,
+    Call,
+    Jump,
+    // ... many more operations
+};
+```
+
+### Virtual machine
+
+The VM (`Runtime/VM.h`, `Runtime/VM.cpp`) manages JavaScript execution:
+
+```cpp
+class VM : public RefCounted<VM> {
+public:
+    static NonnullRefPtr<VM> create();
+    
+    GC::Heap& heap();
+    Bytecode::Interpreter& bytecode_interpreter();
+    
+    // Execution context management
+    // Promise job queue
+    // Module loading
+};
+```
+
+<CardGroup cols={2}>
+  <Card title="Execution contexts">
+    Call stack, variable scopes, and this binding
+  </Card>
+  <Card title="Well-known symbols">
+    Built-in symbols like Symbol.iterator
+  </Card>
+  <Card title="String caching">
+    Optimization for frequently used strings
+  </Card>
+  <Card title="Module loading">
+    ESM module resolution and execution
+  </Card>
+</CardGroup>
+
+### Runtime objects
+
+The `Runtime/` directory contains all built-in JavaScript objects:
+
+```
+Runtime/
+  ├── Object.cpp/.h           # Base Object
+  ├── Array.cpp/.h            # Array and methods
+  ├── Function.cpp/.h         # Function objects
+  ├── Promise.cpp/.h          # Promises and async
+  ├── Map.cpp/.h              # Map collection
+  ├── Set.cpp/.h              # Set collection
+  ├── RegExpObject.cpp/.h     # Regular expressions
+  ├── Date.cpp/.h             # Date and time
+  └── ... (100+ built-in types)
+```
+
+Each built-in follows a pattern:
+- **Constructor**: Creates instances (e.g., `ArrayConstructor`)
+- **Prototype**: Methods available on instances (e.g., `ArrayPrototype`)
+- **Object**: Internal representation (e.g., `Array`)
+
+<Tip>
+Looking for how `Array.prototype.map()` works? Check `Runtime/ArrayPrototype.cpp`!
+</Tip>
+
+## Garbage collection
+
+LibJS uses LibGC for automatic memory management:
+
+```cpp
+class Object : public GC::Cell {
+    GC_CELL(Object, GC::Cell);
+    // All JS objects are garbage collected
+};
+```
+
+**Key concepts**:
+- **GC::Cell**: Base class for all GC-managed objects
+- **GC::Ref&lt;T&gt;**: Non-null reference to GC object
+- **GC::Ptr&lt;T&gt;**: Nullable pointer to GC object
+- **Root vectors**: Temporary roots for stack values
+
+<Warning>
+All heap-allocated JavaScript objects must inherit from `GC::Cell` and be allocated through the GC heap. Direct `new` allocation will cause memory issues.
+</Warning>
+
+## ECMAScript compliance
+
+LibJS implements modern ECMAScript features:
+
+| Feature | Status | Files |
+|---------|--------|-------|
+| ES6 Classes | ✓ | `Runtime/ECMAScriptFunctionObject.cpp` |
+| Arrow functions | ✓ | `AST.h`, `Parser.cpp` |
+| Destructuring | ✓ | `Parser.cpp`, `AST.h` |
+| Template literals | ✓ | `Lexer.cpp`, `Parser.cpp` |
+| Promises | ✓ | `Runtime/Promise.cpp` |
+| async/await | ✓ | `Bytecode/`, `AST.cpp` |
+| Modules (ESM) | ✓ | `Module.cpp`, `SourceTextModule.cpp` |
+| Generators | ✓ | `Runtime/GeneratorObject.cpp` |
+| Proxies | ✓ | `Runtime/ProxyObject.cpp` |
+| Symbols | ✓ | `Runtime/Symbol.cpp` |
+
+## Completions and error handling
+
+LibJS uses the "completion" system from the ECMAScript spec:
+
+```cpp
+enum class CompletionType {
+    Normal,
+    Break,
+    Continue,
+    Return,
+    Throw
+};
+
+template<typename T>
+using ThrowCompletionOr = Completion;
+```
+
+This allows propagating:
+- **Normal values**: Successful execution
+- **Exceptions**: Thrown errors
+- **Control flow**: `break`, `continue`, `return`
+
+```cpp
+// Example: Propagating exceptions
+ThrowCompletionOr<Value> do_something(VM& vm) {
+    auto result = TRY(call_function(vm));
+    return result;
+}
+```
+
+<Info>
+The `TRY()` macro automatically propagates throw completions, similar to Rust's `?` operator or exception handling in other languages.
+</Info>
+
+## Module system
+
+LibJS implements ECMAScript modules:
+
+**Module types**:
+- **SourceTextModule**: Regular JavaScript modules (`.js`, `.mjs`)
+- **SyntheticModule**: Programmatically created modules
+- **CyclicModule**: Base for modules with cyclic dependencies
+
+```cpp
+class SourceTextModule : public CyclicModule {
+    // import/export resolution
+    // Module evaluation
+    // Dependency tracking
+};
+```
+
+**Module loading phases**:
+1. **Parse**: Tokenize and parse module source
+2. **Link**: Resolve imports and exports
+3. **Evaluate**: Execute module code
+4. **Cache**: Store for future imports
+
+## Console API
+
+The `Console` class (`Console.cpp`, `Console.h`) implements the console API:
+
+```javascript
+console.log("Hello");
+console.error("Error!");
+console.trace();
+console.time("operation");
+console.timeEnd("operation");
+```
+
+Implemented methods:
+- `log()`, `info()`, `warn()`, `error()`
+- `trace()`, `assert()`
+- `time()`, `timeEnd()`, `timeLog()`
+- `group()`, `groupEnd()`, `groupCollapsed()`
+- `clear()`, `count()`, `countReset()`
+
+## Scope analysis
+
+The scope collector (`ScopeCollector.cpp`, `ScopeCollector.h`) analyzes variable scopes:
+
+- **Lexical scoping**: Block-level scopes for `let` and `const`
+- **Function scoping**: Function-level scopes for `var`
+- **Closure analysis**: Captures and closures
+- **Hoisting**: Variable and function hoisting
+
+```cpp
+class ScopeCollector {
+    // Analyzes AST to build scope trees
+    // Determines variable binding locations
+    // Identifies closures and captures
+};
+```
+
+## Integration with LibWeb
+
+LibJS is deeply integrated with LibWeb:
+
+```cpp
+// LibWeb objects inherit from JS::Cell
+class HTMLElement : public JS::Cell {
+    GC_CELL(HTMLElement, JS::Cell);
+    // Can be used directly in JavaScript
+};
+```
+
+**Integration points**:
+- **Realms**: Each document has a JS realm
+- **Global objects**: `window`, `document`, etc.
+- **Event handlers**: JavaScript event callbacks
+- **Promises**: For async web APIs
+- **WebIDL bindings**: Generated glue code
+
+## Development tools
+
+### AST dumping
+
+```cpp
+// ASTDump.cpp - Pretty-print AST structure
+ast->dump(indent_level);
+```
+
+### Pretty printing
+
+```cpp
+// Print.cpp - Convert AST back to readable JS
+ast->print_to_string();
+```
+
+### Syntax highlighting
+
+```cpp
+// SyntaxHighlighter.cpp - Colorize JS code
+auto highlighted = highlight_syntax(source_code);
+```
+
+## Rust integration
+
+LibJS includes experimental Rust integration:
+
+```
+LibJS/Rust/
+  └── Integration code for Rust components
+
+RustIntegration.cpp/.h
+  └── FFI bindings between C++ and Rust
+```
+
+<Note>
+The Rust integration allows certain components to be implemented in Rust while maintaining C++ compatibility.
+</Note>
+
+## Performance optimizations
+
+LibJS includes several performance optimizations:
+
+- **String interning**: Reuse identical strings
+- **Inline caching**: Cache property lookups
+- **Bytecode compilation**: Faster than AST interpretation
+- **JIT preparation**: Architecture supports future JIT compilation
+
+```cpp
+// String cache for frequently used strings
+auto& string_cache() { return m_string_cache; }
+
+// Single ASCII character strings are pre-allocated
+PrimitiveString& single_ascii_character_string(u8 character);
+```
+
+## Related components
+
+<CardGroup cols={3}>
+  <Card title="LibWeb" href="/engine/libweb">
+    Web rendering engine using LibJS
+  </Card>
+  <Card title="LibWasm" href="/engine/libwasm">
+    WebAssembly implementation
+  </Card>
+  <Card title="LibGC">
+    Garbage collection infrastructure
+  </Card>
+</CardGroup>

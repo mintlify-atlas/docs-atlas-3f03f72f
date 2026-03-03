@@ -1,0 +1,449 @@
+---
+title: LibHTTP client
+description: LibHTTP provides HTTP/1.1 client functionality for web requests, including header management, request building, and response handling.
+---
+
+LibHTTP is Ladybird's HTTP/1.1 client library that handles web requests, HTTP headers, cookies, and caching. It works in conjunction with RequestServer for network operations.
+
+## HTTP request handling
+
+### HttpRequest
+
+Build and send HTTP requests:
+
+```cpp
+#include <LibHTTP/HttpRequest.h>
+
+// Create request
+auto headers = adopt_ref(*new HTTP::HeaderList);
+HTTP::HttpRequest request { headers };
+
+request.set_method(HTTP::HttpRequest::Method::GET);
+request.set_url(URL::URL("https://example.com/api"sv));
+
+// Set custom headers
+headers->set("User-Agent"sv, "Ladybird/1.0"sv);
+headers->set("Accept"sv, "application/json"sv);
+
+// Convert to raw bytes
+auto raw_request = TRY(request.to_raw_request());
+```
+
+### HTTP methods
+
+Supported HTTP methods:
+
+<CardGroup cols={3}>
+  <Card title="GET" icon="download">
+    Retrieve resource
+  </Card>
+  <Card title="POST" icon="upload">
+    Submit data
+  </Card>
+  <Card title="PUT" icon="pen">
+    Update resource
+  </Card>
+  <Card title="DELETE" icon="trash">
+    Remove resource
+  </Card>
+  <Card title="HEAD" icon="circle-info">
+    Get headers only
+  </Card>
+  <Card title="OPTIONS" icon="list">
+    Query supported methods
+  </Card>
+  <Card title="PATCH" icon="pencil">
+    Partial update
+  </Card>
+  <Card title="TRACE" icon="route">
+    Diagnostic trace
+  </Card>
+  <Card title="CONNECT" icon="link">
+    Establish tunnel
+  </Card>
+</CardGroup>
+
+```cpp
+// Set method
+request.set_method(HTTP::HttpRequest::Method::POST);
+
+// Add request body
+ByteBuffer body;
+TRY(body.try_append("{\"key\": \"value\"}"sv));
+request.set_body(move(body));
+```
+
+### Parsing requests
+
+Parse raw HTTP requests:
+
+```cpp
+// Parse from bytes
+auto request_or_error = HTTP::HttpRequest::from_raw_request(
+    raw_bytes
+);
+
+if (request_or_error.is_error()) {
+    switch (request_or_error.error()) {
+    case HTTP::HttpRequest::ParseError::RequestTooLarge:
+        // Handle too large
+        break;
+    case HTTP::HttpRequest::ParseError::InvalidURL:
+        // Handle invalid URL
+        break;
+    // ...
+    }
+}
+
+auto request = request_or_error.release_value();
+auto method = request.method();
+auto url = request.url();
+```
+
+## Header management
+
+### HeaderList
+
+Manage HTTP headers:
+
+```cpp
+auto headers = adopt_ref(*new HTTP::HeaderList);
+
+// Set headers
+headers->set("Content-Type"sv, "application/json"sv);
+headers->set("Authorization"sv, "Bearer token123"sv);
+headers->set("Accept-Encoding"sv, "gzip, deflate"sv);
+
+// Get header value
+if (auto content_type = headers->get("Content-Type"sv)) {
+    dbgln("Content-Type: {}", *content_type);
+}
+
+// Check existence
+if (headers->contains("Authorization"sv)) {
+    // Header exists
+}
+
+// Remove header
+headers->remove("X-Custom-Header"sv);
+
+// Iterate all headers  
+headers->for_each([](auto const& name, auto const& value) {
+    dbgln("{}: {}", name, value);
+});
+```
+
+### Header parsing
+
+```cpp
+// Parse header value
+auto header = TRY(HTTP::Header::from_string(
+    "Content-Type: text/html; charset=utf-8"sv
+));
+
+dbgln("Name: {}", header.name);     // "Content-Type"
+dbgln("Value: {}", header.value);   // "text/html; charset=utf-8"
+```
+
+## HTTP status codes
+
+### Status handling
+
+```cpp
+// Check status code
+if (response.status_code() == 200) {
+    // Success
+} else if (response.status_code() >= 400) {
+    // Client or server error
+}
+
+// Common status codes
+switch (response.status_code()) {
+case 200: // OK
+    break;
+case 301: // Moved Permanently
+case 302: // Found (temporary redirect)
+    auto location = response.headers().get("Location"sv);
+    // Follow redirect
+    break;
+case 304: // Not Modified
+    // Use cached version
+    break;
+case 404: // Not Found
+    // Resource doesn't exist
+    break;
+case 500: // Internal Server Error
+    // Server error
+    break;
+}
+```
+
+<Info>
+Status codes follow the HTTP/1.1 specification (RFC 7231). LibHTTP provides the `Status` enum for common status codes.
+</Info>
+
+## Request building patterns
+
+### GET request
+
+```cpp
+auto headers = adopt_ref(*new HTTP::HeaderList);
+HTTP::HttpRequest request { headers };
+
+request.set_method(HTTP::HttpRequest::Method::GET);
+request.set_url(URL::URL("https://api.example.com/users"sv));
+
+headers->set("Accept"sv, "application/json"sv);
+headers->set("User-Agent"sv, "Ladybird Browser"sv);
+```
+
+### POST with JSON
+
+```cpp
+auto headers = adopt_ref(*new HTTP::HeaderList);
+HTTP::HttpRequest request { headers };
+
+request.set_method(HTTP::HttpRequest::Method::POST);
+request.set_url(URL::URL("https://api.example.com/users"sv));
+
+headers->set("Content-Type"sv, "application/json"sv);
+headers->set("Accept"sv, "application/json"sv);
+
+ByteBuffer body;
+TRY(body.try_append(R"({"name": "Alice", "age": 30})"sv));
+request.set_body(move(body));
+```
+
+### Form data submission
+
+```cpp
+auto headers = adopt_ref(*new HTTP::HeaderList);
+HTTP::HttpRequest request { headers };
+
+request.set_method(HTTP::HttpRequest::Method::POST);
+request.set_url(url);
+
+headers->set("Content-Type"sv, 
+    "application/x-www-form-urlencoded"sv);
+
+ByteBuffer body;
+TRY(body.try_append("username=alice&password=secret"sv));
+request.set_body(move(body));
+```
+
+## Cookie handling
+
+LibHTTP includes cookie support for maintaining session state:
+
+### Setting cookies
+
+```cpp
+// Parse Set-Cookie header
+auto cookie = TRY(HTTP::Cookie::parse_cookie(
+    "sessionid=abc123; Path=/; HttpOnly; Secure"sv
+));
+
+dbgln("Name: {}", cookie.name);
+dbgln("Value: {}", cookie.value);
+dbgln("Path: {}", cookie.path);
+dbgln("Secure: {}", cookie.secure);
+dbgln("HttpOnly: {}", cookie.http_only);
+```
+
+### Cookie attributes
+
+- `Domain` - Cookie domain scope
+- `Path` - URL path scope
+- `Expires` - Expiration timestamp
+- `Max-Age` - Lifetime in seconds
+- `Secure` - HTTPS only
+- `HttpOnly` - No JavaScript access
+- `SameSite` - CSRF protection (Strict/Lax/None)
+
+## Caching
+
+### HTTP cache support
+
+LibHTTP supports HTTP caching directives:
+
+```cpp
+// Check cache headers
+auto cache_control = headers->get("Cache-Control"sv);
+if (cache_control && cache_control->contains("no-cache"sv)) {
+    // Don't use cached version
+}
+
+// ETag validation
+if (auto etag = headers->get("ETag"sv)) {
+    // Store etag for conditional requests
+    next_headers->set("If-None-Match"sv, *etag);
+}
+
+// Last-Modified validation
+if (auto last_modified = headers->get("Last-Modified"sv)) {
+    next_headers->set("If-Modified-Since"sv, *last_modified);
+}
+```
+
+### Cache directives
+
+<CardGroup cols={2}>
+  <Card title="Cache-Control" icon="gears">
+    `no-cache`, `no-store`, `max-age`, `must-revalidate`
+  </Card>
+  <Card title="ETag" icon="tag">
+    Entity tag for conditional requests
+  </Card>
+  <Card title="Last-Modified" icon="clock">
+    Resource modification timestamp
+  </Card>
+  <Card title="Expires" icon="calendar">
+    Explicit expiration date
+  </Card>
+</CardGroup>
+
+## Content negotiation
+
+### Accept headers
+
+```cpp
+headers->set("Accept"sv, 
+    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"sv);
+headers->set("Accept-Language"sv, "en-US,en;q=0.9"sv);
+headers->set("Accept-Encoding"sv, "gzip, deflate, br"sv);
+```
+
+### Content-Type parsing
+
+```cpp
+auto content_type = headers->get("Content-Type"sv);
+if (content_type) {
+    if (content_type->contains("application/json"sv)) {
+        // Parse as JSON
+    } else if (content_type->contains("text/html"sv)) {
+        // Parse as HTML
+    }
+}
+```
+
+## Integration with RequestServer
+
+LibHTTP typically works through RequestServer for actual network I/O:
+
+```cpp
+// RequestServer handles:
+// - DNS resolution
+// - TCP connection management  
+// - TLS/SSL (via LibTLS)
+// - Request queuing
+// - Connection pooling
+
+// Application uses high-level API:
+auto request = HTTP::HttpRequest { headers };
+request.set_url(url);
+request.set_method(HTTP::HttpRequest::Method::GET);
+
+// RequestServer executes the request
+// and returns response via IPC
+```
+
+<Warning>
+LibHTTP handles HTTP protocol details but doesn't perform actual network I/O. Use RequestServer (via IPC) for network operations.
+</Warning>
+
+## Utilities
+
+### URL handling
+
+LibHTTP works with `URL::URL` from LibURL:
+
+```cpp
+auto url = URL::URL("https://example.com:8080/path?query=value#fragment"sv);
+
+dbgln("Scheme: {}", url.scheme());     // "https"
+dbgln("Host: {}", url.host());         // "example.com"
+dbgln("Port: {}", url.port());         // 8080
+dbgln("Path: {}", url.serialize_path()); // "/path"
+dbgln("Query: {}", url.query());       // "query=value"
+```
+
+### Method conversion
+
+```cpp
+// String to method
+auto method_name = "POST"sv;
+auto method = HTTP::to_method(method_name);
+
+// Method to string
+auto name = HTTP::to_string_view(HTTP::HttpRequest::Method::GET);
+dbgln("Method: {}", name); // "GET"
+```
+
+## Error handling
+
+```cpp
+// Parse errors
+auto result = HTTP::HttpRequest::from_raw_request(bytes);
+if (result.is_error()) {
+    auto error = result.error();
+    auto message = HTTP::HttpRequest::parse_error_to_string(error);
+    dbgln("Parse failed: {}", message);
+}
+
+// Build errors
+if (auto raw = request.to_raw_request(); raw.is_error()) {
+    dbgln("Failed to build request: {}", raw.error());
+}
+```
+
+## Advanced features
+
+### Custom headers
+
+```cpp
+// Add custom application headers
+headers->set("X-Request-ID"sv, generate_uuid());
+headers->set("X-API-Key"sv, api_key);
+headers->set("X-Client-Version"sv, "1.0.0"sv);
+```
+
+### Range requests
+
+```cpp
+// Request partial content
+headers->set("Range"sv, "bytes=0-1023"sv);
+
+// Server responds with 206 Partial Content
+if (response.status_code() == 206) {
+    auto content_range = response.headers().get("Content-Range"sv);
+    // Parse range information
+}
+```
+
+## Performance considerations
+
+<Tip>
+Reuse `HeaderList` objects when making multiple similar requests to reduce allocations. Clone the base headers and modify as needed.
+</Tip>
+
+```cpp
+// Base headers for all requests
+auto base_headers = adopt_ref(*new HTTP::HeaderList);
+base_headers->set("User-Agent"sv, "Ladybird"sv);
+base_headers->set("Accept-Encoding"sv, "gzip"sv);
+
+// Clone and customize per request
+auto request_headers = base_headers->clone();
+request_headers->set("Authorization"sv, token);
+```
+
+## Source location
+
+- **Repository**: `~/workspace/source/Libraries/LibHTTP/`
+- **Key headers**: `HttpRequest.h`, `HeaderList.h`, `Header.h`, `Status.h`, `Method.h`
+- **Cookie support**: `LibHTTP/Cookie/`
+- **Caching**: `LibHTTP/Cache/`
+
+<Note>
+LibHTTP implements HTTP/1.1 per RFC 7230-7235. HTTP/2 and HTTP/3 support is planned for future releases.
+</Note>

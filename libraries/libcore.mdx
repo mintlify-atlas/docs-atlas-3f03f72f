@@ -1,0 +1,422 @@
+---
+title: LibCore event loop and OS abstraction
+description: LibCore provides an event-driven programming model with timers, I/O notifications, and cross-platform OS abstractions for file systems, networking, and processes.
+---
+
+LibCore is Ladybird's foundational library for event-driven programming and operating system abstractions. It provides the event loop, timers, file I/O, networking primitives, and process management.
+
+## Event loop system
+
+The event loop is the heart of LibCore, enabling asynchronous I/O and event handling. See the [event loop architecture](/architecture/event-loop) for more details.
+
+### Creating and running an event loop
+
+```cpp
+#include <LibCore/EventLoop.h>
+
+int main(int argc, char** argv)
+{
+    Core::EventLoop event_loop;
+    
+    // Queue work
+    event_loop.deferred_invoke([] {
+        dbgln("This runs on the next event loop iteration");
+    });
+    
+    // Run until quit
+    return event_loop.exec();
+}
+```
+
+<Info>
+There is at most one running event loop per thread. Event loops can be nested for modal dialogs and other temporary UI states.
+</Info>
+
+### Event loop capabilities
+
+<CardGroup cols={2}>
+  <Card title="Deferred invocation" icon="clock">
+    Execute callbacks on next event loop iteration
+  </Card>
+  <Card title="Timers" icon="stopwatch">
+    Schedule callbacks to run after delays or repeatedly
+  </Card>
+  <Card title="I/O notifications" icon="bell">
+    React when file descriptors become readable/writable
+  </Card>
+  <Card title="Signal handling" icon="signal">
+    Handle POSIX signals in event-driven manner
+  </Card>
+</CardGroup>
+
+### How it works
+
+The event loop uses `select(2)` to efficiently wait for events:
+
+1. `exec()` repeatedly calls `pump()` to process events
+2. `pump()` uses `select()` to sleep until an event occurs
+3. When awakened, callbacks for expired timers and I/O are invoked
+4. The loop returns to sleep until the next event
+
+<Warning>
+Do not store event loops in global variables due to initialization order issues. Create them in `main()` and pass them to classes that need them.
+</Warning>
+
+## Timers
+
+### Core::Timer
+
+Schedule callbacks to run after a delay:
+
+```cpp
+auto timer = Core::Timer::create();
+
+// One-shot timer (runs once)
+timer->set_single_shot(true);
+timer->set_interval(1000); // milliseconds
+timer->on_timeout = [] {
+    dbgln("Timer fired!");
+};
+timer->start();
+
+// Repeating timer
+auto repeating = Core::Timer::create();
+repeating->set_interval(100);
+repeating->on_timeout = [] {
+    dbgln("Tick");
+};
+repeating->start();
+
+// Stop timer
+repeating->stop();
+```
+
+<Tip>
+Timers are not super accurate due to event loop scheduling. Don't rely on them for precise timing in real-time scenarios like audio processing.
+</Tip>
+
+## I/O and notifications
+
+### Core::Notifier
+
+React when file descriptors become readable or writable:
+
+```cpp
+auto notifier = Core::Notifier::create(
+    socket_fd,
+    Core::Notifier::Type::Read
+);
+
+notifier->on_activation = [socket_fd] {
+    // Socket has data to read
+    auto bytes = read_from_socket(socket_fd);
+    process(bytes);
+};
+```
+
+Notifier types:
+- `Read` - File descriptor has data to read
+- `Write` - File descriptor is ready for writing
+- `Exception` - Exception condition occurred
+
+## File system operations
+
+### Core::File
+
+Cross-platform file I/O:
+
+```cpp
+// Open for reading
+auto file = TRY(Core::File::open(
+    "/path/to/file"sv,
+    Core::File::OpenMode::Read
+));
+
+// Read entire file
+auto contents = TRY(file->read_until_eof());
+
+// Open for writing
+auto output = TRY(Core::File::open(
+    "/path/to/output"sv,
+    Core::File::OpenMode::Write
+));
+
+TRY(output->write_until_depleted(data));
+```
+
+### Core::Directory
+
+Directory operations:
+
+```cpp
+// List directory contents
+auto dir = TRY(Core::Directory::create(
+    "/path/to/dir"sv,
+    Core::Directory::CreateDirectories::Yes
+));
+
+TRY(dir->for_each_entry([](auto const& entry) {
+    dbgln("Found: {}", entry.name);
+    return IterationDecision::Continue;
+}));
+```
+
+### Core::DirIterator
+
+Iterate over directory entries:
+
+```cpp
+Core::DirIterator iterator { "/path/to/dir"sv };
+
+while (iterator.has_next()) {
+    auto entry = iterator.next();
+    if (entry->type == Core::DirectoryEntry::Type::Directory) {
+        dbgln("Directory: {}", entry->name);
+    }
+}
+```
+
+### File watching
+
+Monitor file system changes:
+
+```cpp
+auto watcher = TRY(Core::FileWatcher::create());
+
+TRY(watcher->add_watch(
+    "/path/to/watch"sv,
+    Core::FileWatcher::Event::Type::MetadataModified
+));
+
+watcher->on_change = [](auto const& event) {
+    dbgln("File changed: {}", event.path);
+};
+```
+
+## Networking
+
+### Core::Socket
+
+Base class for network sockets with async I/O:
+
+```cpp
+auto socket = TRY(Core::Socket::connect(
+    { "example.com", 80 }
+));
+
+socket->on_ready_to_read = [&] {
+    auto buffer = TRY(socket->read_some(4096));
+    process_data(buffer);
+};
+
+TRY(socket->write_until_depleted("GET / HTTP/1.1\r\n"sv));
+```
+
+### Core::TCPServer
+
+TCP server with event-driven connection handling:
+
+```cpp
+auto server = TRY(Core::TCPServer::try_create());
+TRY(server->listen({ 0, 0, 0, 0 }, 8080));
+
+server->on_ready_to_accept = [&] {
+    auto client = TRY(server->accept());
+    
+    client->on_ready_to_read = [client = move(client)] {
+        auto data = TRY(client->read_some(4096));
+        // Handle client data
+    };
+};
+```
+
+### Core::UDPServer
+
+UDP socket for connectionless communication:
+
+```cpp
+auto udp = TRY(Core::UDPServer::try_create());
+TRY(udp->bind({ 0, 0, 0, 0 }, 9000));
+
+udp->on_ready_to_receive = [&] {
+    auto [data, sender] = TRY(udp->receive());
+    dbgln("Received from {}: {}", sender, data);
+};
+```
+
+## Process management
+
+### Core::Process
+
+Spawn and manage child processes:
+
+```cpp
+// Simple spawn
+auto pid = TRY(Core::Process::spawn("/bin/ls"sv, 
+    Vector<StringView> { "-la"sv }));
+
+// Wait for completion
+auto status = TRY(Core::Process::wait(pid));
+
+// Spawn with I/O
+auto result = TRY(Core::Process::run(
+    "/bin/echo"sv,
+    Vector<StringView> { "Hello"sv },
+    Core::Process::KeepAsChild::No
+));
+
+dbgln("Output: {}", result.output);
+```
+
+## Environment and system info
+
+### Environment variables
+
+```cpp
+// Get environment variable
+auto path = Core::Environment::get("PATH"sv);
+
+// Set environment variable
+Core::Environment::set("MY_VAR"sv, "value"sv);
+
+// Check existence
+if (Core::Environment::has("HOME"sv)) {
+    // ...
+}
+```
+
+### Standard paths
+
+```cpp
+// Get standard directories
+auto home = Core::StandardPaths::home_directory();
+auto config = Core::StandardPaths::config_directory();
+auto cache = Core::StandardPaths::cache_directory();
+auto temp = Core::StandardPaths::tempfile_directory();
+```
+
+## Platform abstraction
+
+LibCore provides cross-platform abstractions for:
+
+- **File I/O**: Works on Linux, macOS, Windows (WSL), and Unix systems
+- **Networking**: Portable socket API across platforms
+- **Process management**: Unified process spawning and control
+- **Event loops**: Platform-specific implementations (`EventLoopImplementationUnix`, `EventLoopImplementationWindows`)
+
+```cpp
+// Platform detection available in headers
+#if defined(AK_OS_MACOS)
+    // macOS-specific code
+#elif defined(AK_OS_WINDOWS)
+    // Windows-specific code
+#elif defined(AK_OS_LINUX)
+    // Linux-specific code
+#endif
+```
+
+## Resource loading
+
+### Core::Resource
+
+Load embedded or file-based resources:
+
+```cpp
+auto resource = TRY(Core::Resource::load_from_file(
+    "/resources/image.png"sv
+));
+
+auto data = resource->data();
+```
+
+## Promises and async operations
+
+### Core::Promise
+
+Type-safe async value resolution:
+
+```cpp
+auto promise = Core::Promise<String>::create();
+
+promise->on_resolution = [](String const& value) {
+    dbgln("Promise resolved: {}", value);
+};
+
+// Later, resolve the promise
+promise->resolve("Result"_string);
+```
+
+### Core::ThreadedPromise
+
+Promise that resolves on a background thread:
+
+```cpp
+auto promise = Core::ThreadedPromise<ByteBuffer>::create();
+
+promise->on_resolved = [](ByteBuffer buffer) {
+    // Runs on main thread
+    process(buffer);
+};
+
+// Work happens on background thread
+promise->resolve_async([] {
+    return load_large_file();
+});
+```
+
+## Configuration files
+
+### Core::ConfigFile
+
+INI-style configuration file handling:
+
+```cpp
+auto config = TRY(Core::ConfigFile::open(
+    "/path/to/config.ini"sv
+));
+
+// Read values
+auto value = config->read_entry("Section"sv, "Key"sv);
+auto number = config->read_num_entry("Section"sv, "Port"sv, 8080);
+
+// Write values
+config->write_entry("Section"sv, "Key"sv, "Value"sv);
+TRY(config->sync());
+```
+
+## Argument parsing
+
+### Core::ArgsParser
+
+User-friendly command-line argument parsing:
+
+```cpp
+int main(int argc, char** argv)
+{
+    Core::ArgsParser args;
+    args.set_general_help("My application");
+    
+    bool verbose = false;
+    StringView output_path;
+    Vector<StringView> inputs;
+    
+    args.add_option(verbose, "Verbose output", "verbose", 'v');
+    args.add_option(output_path, "Output file", "output", 'o', "PATH");
+    args.add_positional_argument(inputs, "Input files", "inputs");
+    
+    args.parse(argc, argv);
+    
+    // Use parsed arguments
+}
+```
+
+## Source location
+
+- **Repository**: `~/workspace/source/Libraries/LibCore/`
+- **Key headers**: `EventLoop.h`, `Timer.h`, `File.h`, `Socket.h`, `Process.h`
+- **Documentation**: `~/workspace/source/Documentation/EventLoop.md`
+- **Platform code**: `LibCore/Platform/`
+
+<Note>
+LibCore's event loop is designed for I/O-bound operations and UI events. For CPU-intensive work, use LibThreading to run tasks on background threads.
+</Note>

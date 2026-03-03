@@ -1,0 +1,331 @@
+---
+title: LibGfx graphics library
+description: LibGfx provides 2D graphics primitives, image decoding, font rendering, and painting operations for Ladybird's rendering engine.
+---
+
+LibGfx is Ladybird's 2D graphics library that handles everything from basic shapes and colors to image decoding, font rendering, and hardware-accelerated painting.
+
+## Core graphics primitives
+
+LibGfx provides fundamental types for 2D graphics operations.
+
+### Geometric types
+
+```cpp
+// Points
+Gfx::IntPoint point { 10, 20 };
+Gfx::FloatPoint float_point { 10.5f, 20.5f };
+
+// Rectangles
+Gfx::IntRect rect { 0, 0, 100, 50 };
+rect.intersected(other_rect);
+rect.united(other_rect);
+
+// Sizes
+Gfx::IntSize size { 800, 600 };
+```
+
+<CardGroup cols={2}>
+  <Card title="IntPoint / FloatPoint" icon="location-dot">
+    2D coordinate positions with integer or floating-point precision
+  </Card>
+  <Card title="IntRect / FloatRect" icon="vector-square">
+    Rectangles with position and dimensions, plus intersection/union operations
+  </Card>
+  <Card title="IntSize / FloatSize" icon="maximize">
+    Width and height dimensions
+  </Card>
+  <Card title="Quad" icon="draw-polygon">
+    Arbitrary four-sided polygon
+  </Card>
+</CardGroup>
+
+### Color
+
+Comprehensive color support with multiple representations:
+
+```cpp
+// RGB colors
+auto red = Gfx::Color(255, 0, 0);
+auto blue = Gfx::Color::from_rgb(0x0000ff);
+
+// Named colors
+auto white = Gfx::Color::White;
+auto black = Gfx::Color::Black;
+
+// Alpha transparency
+auto translucent = Gfx::Color(255, 0, 0, 128); // 50% opacity
+
+// Color manipulation
+auto lighter = color.lightened(1.2f);
+auto darker = color.darkened(0.8f);
+auto inverted = color.inverted();
+```
+
+<Info>
+LibGfx supports multiple color spaces including sRGB, Display P3, and custom ICC profiles through the `ColorSpace` class.
+</Info>
+
+## Bitmap handling
+
+### Bitmap creation and manipulation
+
+`Bitmap` is the core image storage class:
+
+```cpp
+// Create bitmap
+auto bitmap = TRY(Gfx::Bitmap::create(
+    Gfx::BitmapFormat::RGBA8888,
+    Gfx::IntSize { 800, 600 }
+));
+
+// Access pixels
+auto color = bitmap->get_pixel(x, y);
+bitmap->set_pixel(x, y, Gfx::Color::Red);
+
+// Scanline access for performance
+auto* scanline = bitmap->scanline(y);
+```
+
+Supported formats:
+- `RGBA8888` - 32-bit with alpha
+- `RGB888` - 24-bit without alpha
+- `BGRx8888` - 32-bit BGR format
+- `BGRA8888` - 32-bit BGRA with alpha
+
+### ImmutableBitmap
+
+Read-only, shareable bitmap optimized for multi-process usage:
+
+```cpp
+auto immutable = TRY(Gfx::ImmutableBitmap::create(
+    move(bitmap)
+));
+
+// Can be safely shared across processes
+```
+
+## Image decoding
+
+LibGfx includes decoders for common image formats:
+
+<CardGroup cols={3}>
+  <Card title="PNG" icon="image">
+    Full PNG support with transparency
+  </Card>
+  <Card title="JPEG" icon="image">
+    Baseline and progressive JPEG
+  </Card>
+  <Card title="GIF" icon="images">
+    Including animations
+  </Card>
+  <Card title="WebP" icon="image">
+    Lossy and lossless
+  </Card>
+  <Card title="BMP" icon="image">
+    Windows bitmap format
+  </Card>
+  <Card title="ICO" icon="image">
+    Windows icon format
+  </Card>
+</CardGroup>
+
+```cpp
+// Load and decode image
+auto image_data = TRY(read_file("/path/to/image.png"));
+auto decoded = TRY(Gfx::ImageDecoder::try_create(image_data));
+
+if (decoded->is_animated()) {
+    auto frame_count = decoded->frame_count();
+    for (size_t i = 0; i < frame_count; ++i) {
+        auto frame = TRY(decoded->frame(i));
+        // Process frame bitmap
+    }
+}
+```
+
+## Font rendering
+
+### Font system
+
+LibGfx provides font loading and text rendering:
+
+```cpp
+// Load font
+auto font = TRY(Gfx::Font::try_load_from_file("/fonts/Katica.ttf"));
+
+// Get font metrics
+int height = font->pixel_size();
+int ascent = font->pixel_size_rounded_up();
+
+// Measure text
+int width = font->width("Hello, World!"sv);
+
+// Glyph-level access
+auto glyph_id = font->glyph_id_for_code_point('A');
+```
+
+### Text layout
+
+Complex text shaping and layout:
+
+```cpp
+auto shaped_text = TRY(Gfx::shape_text(
+    { 0, 0, 500, 100 },
+    "Text to shape"sv,
+    font,
+    Gfx::TextAlignment::CenterLeft
+));
+
+// Access positioned glyphs
+for (auto const& glyph : shaped_text.glyphs()) {
+    // Render individual glyphs
+}
+```
+
+## Painting
+
+LibGfx uses Skia for high-performance 2D rendering.
+
+### Painter interface
+
+`Painter` provides the main drawing API:
+
+```cpp
+Gfx::Painter painter { bitmap };
+
+// Basic shapes
+painter.fill_rect(rect, Gfx::Color::Red);
+painter.draw_rect(rect, Gfx::Color::Black);
+painter.draw_line(point1, point2, Gfx::Color::Blue);
+painter.draw_ellipse(rect, Gfx::Color::Green);
+
+// Text rendering
+painter.draw_text(rect, "Hello"sv, font, 
+    Gfx::TextAlignment::Center);
+
+// Image drawing
+painter.blit(position, source_bitmap, source_rect);
+painter.draw_scaled_bitmap(dest_rect, source_bitmap, source_rect);
+```
+
+### Advanced painting
+
+```cpp
+// Gradients
+Gfx::LinearGradient gradient;
+gradient.add_color_stop(0.0f, Gfx::Color::White);
+gradient.add_color_stop(1.0f, Gfx::Color::Black);
+painter.fill_rect_with_gradient(rect, gradient);
+
+// Transformations
+painter.save();
+painter.translate(offset);
+painter.rotate(angle);
+painter.scale(scale_x, scale_y);
+// ... drawing operations ...
+painter.restore();
+
+// Clipping
+painter.add_clip_rect(clip_rect);
+// Only draws within clip region
+painter.clear_clip_rect();
+```
+
+<Warning>
+Painting operations are not thread-safe. Each painter instance must only be used from a single thread.
+</Warning>
+
+## Paths and vector graphics
+
+### Path construction
+
+```cpp
+Gfx::Path path;
+
+// Build path
+path.move_to({ 10, 10 });
+path.line_to({ 100, 10 });
+path.quadratic_bezier_curve_to(
+    { 150, 50 },  // control point
+    { 100, 100 }   // end point
+);
+path.close();
+
+// Fill or stroke
+painter.fill_path(path, Gfx::Color::Red);
+painter.stroke_path(path, Gfx::Color::Black, 2);
+```
+
+### Transformations
+
+`AffineTransform` provides 2D matrix transformations:
+
+```cpp
+Gfx::AffineTransform transform;
+transform.translate(100, 50);
+transform.rotate(Math::Pi<float> / 4); // 45 degrees
+transform.scale(2.0f, 2.0f);
+
+auto transformed_point = transform.map(original_point);
+auto transformed_rect = transform.map(original_rect);
+```
+
+## Hardware acceleration
+
+LibGfx supports multiple rendering backends:
+
+### Skia backend
+
+Default high-performance backend using Skia:
+
+```cpp
+// PainterSkia automatically uses GPU when available
+Gfx::PainterSkia painter { painting_surface };
+painter.fill_rect(rect, color);
+```
+
+### Vulkan and Metal
+
+Platform-specific GPU acceleration:
+
+- **Vulkan**: Cross-platform GPU rendering (`VulkanContext`)
+- **Metal**: macOS/iOS GPU rendering (`MetalContext`)
+
+<Tip>
+LibGfx automatically selects the best available rendering backend based on platform and hardware capabilities.
+</Tip>
+
+## Filters and effects
+
+Image filtering and effects:
+
+```cpp
+// Apply filters
+auto blurred = TRY(Gfx::Filter::apply_blur(bitmap, radius));
+auto sharpened = TRY(Gfx::Filter::apply_sharpen(bitmap));
+
+// Color adjustments  
+Gfx::Filter::apply_brightness(bitmap, 1.2f);
+Gfx::Filter::apply_contrast(bitmap, 1.5f);
+```
+
+## System theme integration
+
+```cpp
+// Access system theme colors
+auto& theme = Gfx::SystemTheme::current();
+auto window_bg = theme.color(Gfx::ColorRole::Window);
+auto text_color = theme.color(Gfx::ColorRole::WindowText);
+```
+
+## Source location
+
+- **Repository**: `~/workspace/source/Libraries/LibGfx/`
+- **Key headers**: `Bitmap.h`, `Color.h`, `Painter.h`, `Rect.h`, `Point.h`, `Font.h`
+- **Image formats**: `LibGfx/ImageFormats/`
+- **Fonts**: `LibGfx/Font/`
+
+<Info>
+LibGfx is designed to be backend-agnostic. While it currently uses Skia as the primary rendering engine, the API abstracts the underlying implementation.
+</Info>

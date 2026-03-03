@@ -1,0 +1,254 @@
+---
+title: LibWeb rendering engine
+description: Learn about LibWeb, Ladybird's powerful web rendering engine that implements web standards including HTML, CSS, DOM, and layout
+---
+
+LibWeb is Ladybird's comprehensive web rendering engine, responsible for transforming HTML, CSS, and JavaScript into the visual web pages you see in the browser. It implements web standards from scratch, providing a modern, spec-compliant foundation for web content rendering.
+
+## Architecture overview
+
+LibWeb follows a modular architecture organized by web specifications, with each major component implemented in its own namespace:
+
+<CardGroup cols={2}>
+  <Card title="DOM implementation" icon="sitemap" href="/engine/dom">
+    Document Object Model, nodes, events, and tree structures
+  </Card>
+  <Card title="CSS engine" icon="palette" href="/engine/css">
+    Parsing, cascading, computed styles, and visual formatting
+  </Card>
+  <Card title="Layout engine" icon="table-layout">
+    Box model, positioning, flex, grid, and layout calculations
+  </Card>
+  <Card title="Painting system" icon="paintbrush">
+    Rendering pipeline, display lists, and visual output
+  </Card>
+</CardGroup>
+
+## Directory structure
+
+LibWeb is organized following a clear pattern where each web specification gets its own subdirectory and C++ namespace:
+
+- **Code location**: `Libraries/LibWeb/[SpecName]/`
+- **Namespace**: `Web::[SpecName]`
+
+For example, the XMLHttpRequest specification:
+- Lives in `LibWeb/XHR/`
+- Uses namespace `Web::XHR`
+
+<Info>
+This structure makes it easy to locate code related to specific web standards. If you're looking for Fetch API implementation, check `LibWeb/Fetch/`. For Geolocation, look in `LibWeb/Geolocation/`.
+</Info>
+
+## Key components
+
+### HTML and DOM
+
+The HTML and DOM implementations form the foundation of LibWeb:
+
+- **Document**: The root of the document tree, managing the page lifecycle
+- **Elements**: HTML elements like `<div>`, `<span>`, `<img>` with their specific behaviors
+- **Node tree**: The hierarchical structure of DOM nodes
+- **Event handling**: Event dispatching, bubbling, and capturing
+
+### Style computation
+
+LibWeb includes a complete CSS implementation:
+
+- **CSS parsing**: Tokenization and parsing of stylesheets
+- **Cascade and inheritance**: Computing which styles apply to each element
+- **Computed values**: Resolving relative units and special values
+- **Style scopes**: Managing stylesheets and their application
+
+### Layout
+
+The layout engine transforms the styled DOM into a layout tree:
+
+```cpp
+enum class LayoutMode {
+    // Normal layout. No min-content or max-content constraints applied.
+    Normal,
+
+    // Intrinsic size determination.
+    // Boxes honor min-content and max-content constraints
+    IntrinsicSizing,
+};
+```
+
+Layout nodes are created from DOM nodes and manage:
+- Box model calculations
+- Positioning (static, relative, absolute, fixed, sticky)
+- Flexbox and grid layout
+- Text layout and line breaking
+
+### Painting
+
+The painting system renders the layout tree to pixels:
+
+```cpp
+enum class PaintPhase {
+    Background,
+    Border,
+    TableCollapsedBorder,
+    Foreground,
+    Outline,
+    Overlay,
+};
+```
+
+<Note>
+Painting happens in phases to ensure correct layering. For example, backgrounds are painted before foregrounds, and outlines are painted after everything else.
+</Note>
+
+## Code patterns and style
+
+LibWeb follows specific code patterns documented in `LibWebPatterns.md`:
+
+### Spec links and comments
+
+All functions representing web specification operations must include:
+
+1. **Spec link** above the function:
+
+```cpp
+// https://fetch.spec.whatwg.org/#concept-fetch
+WebIDL::ExceptionOr<GC::Ref<Infrastructure::FetchController>> fetch(
+    JS::Realm& realm, 
+    Infrastructure::Request& request
+) {
+    // ...
+}
+```
+
+2. **Step-by-step comments** matching the specification:
+
+```cpp
+// 1. Assert: request's mode is "navigate" or processEarlyHintsResponse is null.
+VERIFY(request.mode() == Infrastructure::Request::Mode::Navigate);
+
+// 2. Let taskDestination be null.
+GC::Ptr<JS::Object> task_destination;
+```
+
+### Error handling
+
+LibWeb uses several error types for different purposes:
+
+<CardGroup cols={2}>
+  <Card title="AK::ErrorOr<T>">
+    For propagating OOM errors from AK libraries
+  </Card>
+  <Card title="WebIDL::ExceptionOr<T>">
+    Most common - for errors that interact with JS bindings
+  </Card>
+  <Card title="WebIDL::SimpleException">
+    Wrapper around ECMAScript built-in errors
+  </Card>
+  <Card title="WebIDL::DOMException">
+    For web-specific error types from WebIDL spec
+  </Card>
+</CardGroup>
+
+```cpp
+// Example: OOM errors are propagated, then converted to JS errors
+auto result = TRY(some_operation());
+return TRY_OR_THROW_OOM(vm, allocate_something());
+```
+
+## IDL and bindings
+
+LibWeb uses WebIDL files to generate JavaScript bindings:
+
+- **IDL files**: Define the JavaScript-visible interface (`.idl`)
+- **Implementation**: C++ implementation (`.h`, `.cpp`)
+- **Generated bindings**: Automatically created glue code
+
+<Tip>
+IDL files are copied verbatim from specifications when possible, using four-space indentation to match Ladybird's code style.
+</Tip>
+
+### File placement
+
+For most interfaces, all three files live together:
+```
+LibWeb/XHR/
+  ├── XMLHttpRequest.idl
+  ├── XMLHttpRequest.h
+  └── XMLHttpRequest.cpp
+```
+
+For hand-written bindings (no IDL generation), code goes in `Bindings/`.
+
+## Integration with LibJS
+
+LibWeb tightly integrates with LibJS for JavaScript execution:
+
+- **Garbage collection**: Uses LibJS's GC for all heap-allocated objects
+- **Realms**: Each document has an associated JS realm
+- **Value conversion**: Seamless conversion between C++ and JS types
+- **Promise handling**: Native support for async operations
+
+```cpp
+// LibWeb objects are GC-managed
+class Document : public JS::Cell {
+    GC_CELL(Document, JS::Cell);
+    // ...
+};
+```
+
+## Web standards implementation
+
+LibWeb implements a wide range of web standards:
+
+| Specification | Directory | Description |
+|--------------|-----------|-------------|
+| HTML | `LibWeb/HTML/` | Elements, forms, scripting, media |
+| CSS | `LibWeb/CSS/` | Selectors, properties, layout |
+| DOM | `LibWeb/DOM/` | Document, nodes, events |
+| Fetch | `LibWeb/Fetch/` | Network requests and responses |
+| WebGL | `LibWeb/WebGL/` | 3D graphics API |
+| WebAudio | `LibWeb/WebAudio/` | Audio processing |
+| SVG | `LibWeb/SVG/` | Scalable vector graphics |
+| Canvas | `LibWeb/HTML/` | 2D drawing API |
+
+<Warning>
+Some specifications span multiple areas. For example, CSSOM touches both `LibWeb/CSS/` for core CSS functionality and the HTML spec for `Window` additions.
+</Warning>
+
+## Performance considerations
+
+LibWeb is designed with performance in mind:
+
+- **Invalidation tracking**: Only re-layout or re-paint when necessary
+- **Display lists**: Optimized rendering with cached display lists
+- **Lazy evaluation**: Compute values only when needed
+- **Optimizations marked**: Special fast paths are clearly documented
+
+```cpp
+// OPTIMIZATION: Fast path for single values
+if (values.size() == 1)
+    return values[0];
+```
+
+## Development workflow
+
+When working on LibWeb:
+
+1. **Find the spec**: Locate the relevant web specification
+2. **Navigate to the directory**: Go to `LibWeb/[SpecName]/`
+3. **Read the patterns**: Check `Documentation/LibWebPatterns.md`
+4. **Implement with spec links**: Add spec URLs and step comments
+5. **Use proper error types**: Choose the right error handling approach
+
+## Related components
+
+<CardGroup cols={3}>
+  <Card title="LibJS" href="/engine/libjs">
+    JavaScript engine powering scripts
+  </Card>
+  <Card title="LibWasm" href="/engine/libwasm">
+    WebAssembly implementation
+  </Card>
+  <Card title="CSS implementation" href="/engine/css">
+    Detailed CSS parsing and properties
+  </Card>
+</CardGroup>

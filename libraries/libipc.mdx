@@ -1,0 +1,423 @@
+---
+title: LibIPC inter-process communication
+description: LibIPC enables type-safe, asynchronous message passing between processes in Ladybird's multi-process architecture.
+---
+
+LibIPC provides the inter-process communication (IPC) infrastructure that powers Ladybird's multi-process architecture. It enables type-safe, high-performance message passing between the UI process, WebContent renderers, ImageDecoder, and RequestServer.
+
+## Overview
+
+Ladybird uses a multi-process architecture for security and stability:
+
+- **UI Process**: Main browser UI and coordination
+- **WebContent Process**: Per-tab web rendering (sandboxed)
+- **ImageDecoder Process**: Image decoding (isolated)
+- **RequestServer Process**: Network requests (isolated)
+
+LibIPC connects these processes with:
+- Type-safe message definitions
+- Automatic serialization/deserialization
+- Asynchronous and synchronous messaging
+- Integration with Core::EventLoop
+
+<Info>
+IPC in Ladybird is based on message passing over Unix domain sockets (or named pipes on Windows), making it portable and efficient.
+</Info>
+
+## IPC concepts
+
+### Endpoints
+
+An endpoint defines the interface for IPC communication. Each process typically has a client endpoint and a server endpoint:
+
+- **Client Endpoint**: Messages the client can send
+- **Server Endpoint**: Messages the server can send
+
+### Messages
+
+Messages are strongly-typed and defined in `.ipc` files:
+
+```ipc
+endpoint WebContentServer
+{
+    // Synchronous request - returns a response
+    GetTitle() => (String title)
+    
+    // Asynchronous message - fire and forget
+    LoadURL(URL::URL url) =|
+    
+    // Message with multiple parameters
+    UpdateViewport(Gfx::IntRect rect, Gfx::IntSize size) =|
+}
+
+endpoint WebContentClient  
+{
+    // Server can send notifications to client
+    DidFinishLoading(URL::URL url) =|
+    DidRequestAlert(String message) =|
+}
+```
+
+## Connection
+
+### IPC::Connection
+
+The core class for IPC communication:
+
+```cpp
+template<typename LocalEndpoint, typename PeerEndpoint>
+class Connection : public ConnectionBase {
+    // Synchronous message sending
+    template<typename RequestType, typename... Args>
+    NonnullOwnPtr<typename RequestType::ResponseType> 
+    send_sync(Args&&... args);
+    
+    // Asynchronous message sending  
+    ErrorOr<void> post_message(Message const&);
+};
+```
+
+### Creating connections
+
+```cpp
+// Client side - connect to server
+auto transport = TRY(IPC::Transport::connect_to_socket(
+    socket_path
+));
+
+auto connection = IPC::Connection<
+    WebContentClient,
+    WebContentServer
+>::create(local_stub, move(transport));
+
+// Server side - accept connection
+auto client_socket = TRY(server.accept());
+auto transport = TRY(IPC::Transport::from_socket(
+    move(client_socket)
+));
+
+auto connection = IPC::Connection<
+    WebContentServer,
+    WebContentClient
+>::create(local_stub, move(transport));
+```
+
+## Message passing
+
+### Synchronous requests
+
+Wait for response from remote process:
+
+```cpp
+// Send request and wait for response
+auto response = connection->send_sync<Messages::WebContentServer::GetTitle>();
+dbgln("Page title: {}", response->title());
+
+// With parameters
+auto rect_response = connection->send_sync<
+    Messages::WebContentServer::GetElementRect
+>(element_id);
+```
+
+<Warning>
+Synchronous IPC can block the event loop. Use sparingly and only when necessary. Prefer asynchronous messages when possible.
+</Warning>
+
+### Asynchronous messages
+
+Fire-and-forget messaging:
+
+```cpp
+// Post message without waiting
+TRY(connection->post_message(
+    Messages::WebContentServer::LoadURL(url)
+));
+
+// Multiple async messages
+TRY(connection->post_message(
+    Messages::WebContentServer::UpdateViewport(rect, size)
+));
+TRY(connection->post_message(
+    Messages::WebContentServer::SetPreferredColorScheme(scheme)
+));
+```
+
+### Receiving messages
+
+Implement message handlers in endpoint stub:
+
+```cpp
+class WebContentServerStub : public IPC::Stub {
+public:
+    // Handle synchronous request
+    Messages::WebContentServer::GetTitleResponse 
+    handle_get_title() {
+        return { document()->title() };
+    }
+    
+    // Handle async message
+    void handle_load_url(URL::URL const& url) {
+        navigate_to(url);
+    }
+    
+    void handle_update_viewport(
+        Gfx::IntRect const& rect, 
+        Gfx::IntSize const& size
+    ) {
+        m_viewport = rect;
+        m_size = size;
+        relayout();
+    }
+};
+```
+
+## Transport layer
+
+### IPC::Transport
+
+Abstracts the underlying communication mechanism:
+
+```cpp
+class Transport {
+public:
+    // Send message buffer
+    virtual ErrorOr<void> send_message(MessageBuffer&) = 0;
+    
+    // Receive message
+    virtual ErrorOr<Vector<u8>> receive_message() = 0;
+    
+    // File descriptor for event loop integration
+    virtual int fd() const = 0;
+};
+```
+
+### Platform implementations
+
+- **TransportSocket**: Unix domain sockets (Linux, macOS, BSD)
+- **TransportSocketWindows**: Named pipes (Windows)
+
+## Encoder and Decoder
+
+### IPC::Encoder
+
+Serialize data for transmission:
+
+```cpp
+IPC::Encoder encoder;
+
+// Encode basic types
+encoder << 42;
+encoder << "Hello"sv;
+encoder << true;
+
+// Encode complex types
+encoder << rect;
+encoder << url;
+encoder << vector_of_strings;
+
+auto buffer = encoder.finish();
+```
+
+### IPC::Decoder
+
+Deserialize received data:
+
+```cpp
+IPC::Decoder decoder { message_bytes };
+
+// Decode in same order as encoding
+int value;
+decoder >> value;
+
+String text;
+decoder >> text;
+
+bool flag;
+decoder >> flag;
+
+// Check for errors
+if (decoder.has_error()) {
+    // Handle decode error
+}
+```
+
+### Custom type serialization
+
+Implement `encode` and `decode` for custom types:
+
+```cpp
+namespace IPC {
+
+template<>
+struct Encoder<MyCustomType> {
+    static ErrorOr<void> encode(Encoder& encoder, 
+                                 MyCustomType const& value) {
+        encoder << value.field1();
+        encoder << value.field2();
+        return {};
+    }
+};
+
+template<>
+struct Decoder<MyCustomType> {
+    static ErrorOr<MyCustomType> decode(Decoder& decoder) {
+        auto field1 = TRY(decoder.decode<int>());
+        auto field2 = TRY(decoder.decode<String>());
+        return MyCustomType { field1, field2 };
+    }
+};
+
+}
+```
+
+## File descriptor passing
+
+LibIPC supports passing file descriptors between processes:
+
+### IPC::File
+
+Wrapper for file descriptors in IPC:
+
+```cpp
+// Send file descriptor
+int fd = open("/path/to/file", O_RDONLY);
+auto ipc_file = IPC::File::create_from_fd(fd);
+
+TRY(connection->post_message(
+    Messages::Client::ReceiveFile(move(ipc_file))
+));
+
+// Receive file descriptor
+void handle_receive_file(IPC::File const& file) {
+    int fd = file.fd();
+    // Use file descriptor
+}
+```
+
+<Tip>
+File descriptor passing enables zero-copy data sharing between processes, which is crucial for performance when transferring large bitmaps or shared memory.
+</Tip>
+
+## Server patterns
+
+### SingleServer
+
+Simple single-client server:
+
+```cpp
+class MyService final : public IPC::ConnectionFromClient<
+    MyServiceClient,
+    MyServiceServer
+> {
+public:
+    MyService(NonnullOwnPtr<IPC::Transport> transport)
+        : ConnectionFromClient(move(transport))
+    {
+    }
+    
+    // Message handlers
+    Messages::MyServiceServer::DoWorkResponse handle_do_work() {
+        auto result = perform_work();
+        return { result };
+    }
+};
+```
+
+### MultiServer
+
+Handle multiple concurrent clients:
+
+```cpp
+class ServiceConnection : public IPC::ConnectionFromClient<
+    ServiceClient, ServiceServer
+> {
+    // Per-client connection
+};
+
+class Service {
+    Vector<NonnullRefPtr<ServiceConnection>> m_connections;
+    
+    void accept_client(NonnullOwnPtr<IPC::Transport> transport) {
+        auto connection = adopt_ref(*new ServiceConnection(
+            move(transport)
+        ));
+        m_connections.append(connection);
+    }
+};
+```
+
+## Integration with event loop
+
+IPC connections integrate with Core::EventLoop for async I/O:
+
+```cpp
+// Connection automatically registers with event loop
+auto connection = IPC::Connection<Local, Peer>::create(
+    local_stub,
+    move(transport)
+);
+
+// Messages arrive via event loop callbacks
+// No manual polling needed
+
+Core::EventLoop loop;
+return loop.exec(); // Handles IPC messages
+```
+
+## Error handling
+
+```cpp
+// Check if connection is open
+if (!connection->is_open()) {
+    dbgln("Connection closed");
+    return;
+}
+
+// Handle send errors
+if (auto result = connection->post_message(msg); 
+    result.is_error()) {
+    dbgln("Failed to send: {}", result.error());
+}
+
+// Detect peer disconnect
+void shutdown() override {
+    dbgln("Peer disconnected");
+    // Cleanup
+}
+```
+
+## Code generation
+
+IPC definitions in `.ipc` files are processed by the IPC compiler:
+
+```bash
+# .ipc files generate:
+# - ClientEndpoint.h - Client interface
+# - ServerEndpoint.h - Server interface  
+# - Messages.h - Message type definitions
+```
+
+<CardGroup cols={2}>
+  <Card title="Type safety" icon="shield">
+    Compile-time checking of message types and parameters
+  </Card>
+  <Card title="Automatic serialization" icon="gears">
+    No manual encoding/decoding needed for messages
+  </Card>
+  <Card title="Async by default" icon="bolt">
+    Non-blocking I/O integrated with event loop
+  </Card>
+  <Card title="Cross-process" icon="network-wired">
+    Secure isolation between browser components
+  </Card>
+</CardGroup>
+
+## Source location
+
+- **Repository**: `~/workspace/source/Libraries/LibIPC/`
+- **Key headers**: `Connection.h`, `Encoder.h`, `Decoder.h`, `Transport.h`, `File.h`
+- **Transport implementations**: `TransportSocket.cpp`, `TransportSocketWindows.cpp`
+
+<Note>
+LibIPC is designed for local inter-process communication within a single system. For network protocols, use LibHTTP or implement custom protocols over LibCore sockets.
+</Note>

@@ -1,0 +1,170 @@
+---
+title: WebContent service
+description: Process that hosts the HTML/CSS engine and JavaScript runtime for rendering web pages
+---
+
+The WebContent service is the core rendering process in Ladybird's multi-process architecture. Each browser tab spawns its own isolated WebContent process that handles HTML parsing, CSS styling, JavaScript execution, and page rendering.
+
+## Overview
+
+WebContent is responsible for:
+
+- Running the **LibWeb** HTML/CSS engine
+- Executing JavaScript code via **LibJS**
+- Receiving input events from the Browser process
+- Painting web content into shared bitmaps
+- Managing page lifecycle and navigation
+
+<Note>
+Each tab gets its own dedicated WebContent process for improved stability and security isolation.
+</Note>
+
+## Architecture
+
+The WebContent process operates in a sandboxed environment and communicates with other processes through IPC (Inter-Process Communication).
+
+### Key components
+
+#### ConnectionFromClient
+
+Implements the IPC protocol between the Browser and WebContent processes. Handles messages for:
+
+- Loading URLs and HTML content
+- Input events (keyboard, mouse, touch)
+- Viewport updates and rendering
+- DevTools integration
+- DOM inspection and manipulation
+
+Located in `Services/WebContent/ConnectionFromClient.h:35`
+
+#### PageHost
+
+Manages multiple `PageClient` instances within a single WebContent process. Each page corresponds to a browsing context.
+
+```cpp
+class PageHost {
+    ConnectionFromClient& client() const;
+    PageClient& create_page();
+    void remove_page(Badge<PageClient>, u64 index);
+};
+```
+
+Located in `Services/WebContent/PageHost.h:19`
+
+#### PageClient
+
+Hosts the **LibWeb** engine's main `Web::Page` object and handles:
+
+- Document lifecycle management
+- Painting and rendering
+- Script execution coordination
+- Event dispatching
+
+## Process spawning
+
+WebContent processes are spawned on-demand by the Browser process:
+
+<Info>
+To spawn a WebContent process, connect to the socket at `/tmp/session/%sid/portal/webcontent`, where `%sid` is your login session ID.
+</Info>
+
+The socket is managed by **SystemServer** and creates a new WebContent instance for each connection.
+
+## Security and sandboxing
+
+WebContent processes run with strict security constraints:
+
+- **Unprivileged user**: Runs as a separate user from the desktop user
+- **System call restrictions**: Limited via `pledge()` mechanism
+- **Filesystem access**: Restricted via `unveil()` mechanism
+- **Network isolation**: Can only communicate through RequestServer
+
+<Warning>
+WebContent processes cannot directly access the network or filesystem. All external resources must be fetched through RequestServer and ImageDecoder.
+</Warning>
+
+## Configuration options
+
+WebContent accepts various command-line options:
+
+| Option | Description |
+|--------|-------------|
+| `--request-server-socket` | File descriptor for RequestServer connection |
+| `--image-decoder-socket` | File descriptor for ImageDecoder connection |
+| `--test-mode` | Enable test mode for automated testing |
+| `--expose-experimental-interfaces` | Expose experimental Web IDL interfaces |
+| `--expose-internals-object` | Expose internal testing APIs |
+| `--force-cpu-painting` | Disable GPU acceleration for painting |
+| `--headless` | Run without graphical interface |
+| `--disable-site-isolation` | Disable site isolation security feature |
+
+## Console client
+
+WebContent provides console integration through `WebContentConsoleClient`, enabling:
+
+- JavaScript console API (`console.log`, `console.error`, etc.)
+- DevTools console interaction
+- Script execution from the browser UI
+
+## WebDriver integration
+
+WebContent supports browser automation through WebDriver:
+
+- Connects to external WebDriver server via `WebDriverConnection`
+- Implements W3C WebDriver protocol commands
+- Enables automated testing and browser control
+
+Located in `Services/WebContent/WebDriverConnection.h`
+
+## Rendering pipeline
+
+The rendering process follows these steps:
+
+1. **Parse HTML**: Convert markup into DOM tree
+2. **Apply CSS**: Calculate styles and build render tree
+3. **Layout**: Compute element positions and dimensions
+4. **Paint**: Render content to backing store (CPU or GPU)
+5. **Present**: Share bitmap with Browser process for display
+
+<Tip>
+WebContent uses Skia for hardware-accelerated rendering when available, falling back to CPU rendering when necessary.
+</Tip>
+
+## Resource loading
+
+All network resources are loaded through the RequestServer:
+
+```cpp
+ErrorOr<void> initialize_resource_loader(GC::Heap& heap, int request_server_socket) {
+    auto socket = TRY(Core::LocalSocket::adopt_fd(request_server_socket));
+    auto request_client = TRY(try_make_ref_counted<Requests::RequestClient>(
+        make<IPC::Transport>(move(socket))
+    ));
+    Web::ResourceLoader::initialize(heap, move(request_client));
+    return {};
+}
+```
+
+Located in `Services/WebContent/main.cpp:260`
+
+## Image decoding
+
+Images are decoded in separate ImageDecoder processes:
+
+- Each image gets a fresh decoder process
+- Strongly sandboxed for security
+- Supports PNG, JPEG, BMP, ICO, GIF, and more
+
+## Performance considerations
+
+- **Garbage collection**: JavaScript heap is managed by LibJS
+- **Memory isolation**: Each tab's memory is isolated from others
+- **Process recycling**: Processes are terminated when tabs close
+- **Shared resources**: Font data and some caches are shared across processes
+
+## Related processes
+
+- **Browser**: Main UI process that spawns WebContent
+- **RequestServer**: Handles network requests on behalf of WebContent
+- **ImageDecoder**: Decodes images in isolated processes
+- **WebDriver**: Automation server for testing

@@ -1,0 +1,85 @@
+---
+title: Utilities overview
+description: Command-line utilities bundled with Ladybird Browser for testing and development
+---
+
+Ladybird Browser includes several command-line utilities for testing, debugging, and working with web technologies. These tools are primarily intended for developers and testing purposes.
+
+## Available utilities
+
+### JavaScript engine (js)
+
+A standalone JavaScript interpreter with REPL support. Enables interactive JavaScript execution and script testing outside the browser environment.
+
+[Learn more about the JS utility →](/reference/utilities/js)
+
+### WebAssembly runtime (wasm)
+
+A WebAssembly module parser, validator, and executor. Supports both standalone WASM execution and WASI (WebAssembly System Interface) for system interactions.
+
+[Learn more about the WASM utility →](/reference/utilities/wasm)
+
+### XML parser (xml)
+
+Parses and displays XML documents with syntax highlighting. Includes XML validation and test suite support.
+
+### DNS resolver (dns)
+
+A DNS query tool supporting multiple record types, DoT (DNS over TLS), and DNSSEC validation.
+
+### Image converter (image)
+
+Converts and manipulates images between formats (PNG, JPEG, BMP, WebP). Supports color profile management, cropping, and alpha channel operations.
+
+## Building utilities
+
+The utilities are built using CMake as part of the Ladybird build system:
+
+```bash
+cmake -B build
+cmake --build build
+```
+
+<Note>
+On Windows, the `js` and `wasm` utilities have limited functionality. LibLine (for REPL features) is not available on Windows.
+</Note>
+
+## Installation
+
+Utilities can be installed individually using CPack:
+
+```bash
+cpack --config build/CPackConfig.cmake -G TGZ -C js
+cpack --config build/CPackConfig.cmake -G TGZ -C wasm
+```
+
+This creates platform-specific archives containing the utility and commit information.
+
+## Common use cases
+
+### Testing JavaScript implementations
+
+Use the `js` utility to test ECMAScript compliance and run Test262 test suites.
+
+### WebAssembly module validation
+
+Use the `wasm` utility to validate WASM modules before deployment.
+
+### Image format conversion
+
+Use the `image` utility for batch image conversions and optimizations.
+
+### DNS debugging
+
+Use the `dns` utility to troubleshoot DNS resolution issues and validate DNSSEC.
+
+## Source code
+
+All utility source code is located in the `Utilities/` directory:
+
+- `js.cpp` - JavaScript interpreter
+- `wasm.cpp` - WebAssembly runtime
+- `xml.cpp` - XML parser
+- `dns.cpp` - DNS resolver
+- `image.cpp` - Image converter
+- `test262-runner.cpp` - Test262 test runner

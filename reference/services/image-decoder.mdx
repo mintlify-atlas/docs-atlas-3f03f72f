@@ -1,0 +1,312 @@
+---
+title: ImageDecoder service
+description: Sandboxed image decoding service that converts various image formats into bitmaps
+---
+
+ImageDecoder is a highly sandboxed service that decodes images for WebContent processes. Each image is decoded in a fresh ImageDecoder process to maximize security isolation.
+
+## Overview
+
+ImageDecoder provides secure image decoding for web content by:
+
+- Decoding images in isolated processes
+- Supporting multiple image formats
+- Handling animated images
+- Preventing malicious image exploits from affecting the browser
+
+<Warning>
+ImageDecoder processes are strongly sandboxed and can only receive encoded image data and return decoded bitmaps. They cannot access the filesystem or network.
+</Warning>
+
+## Supported formats
+
+ImageDecoder supports a wide range of image formats:
+
+- **PNG** - Portable Network Graphics
+- **JPEG** - Joint Photographic Experts Group
+- **GIF** - Graphics Interchange Format (including animations)
+- **BMP** - Bitmap Image File
+- **ICO** - Windows Icon
+- **PBM** - Portable Bitmap
+- **PGM** - Portable Graymap
+- **PPM** - Portable Pixmap
+- **WebP** - Modern web image format
+- **QOI** - Quite OK Image format
+
+## Architecture
+
+ImageDecoder uses a minimal architecture focused on security and simplicity.
+
+### Key components
+
+#### ConnectionFromClient
+
+Manages IPC connections and decoding requests:
+
+```cpp
+class ConnectionFromClient : public IPC::ConnectionFromClient<
+    ImageDecoderClientEndpoint,
+    ImageDecoderServerEndpoint
+> {
+    HashMap<i64, NonnullRefPtr<Job>> m_pending_jobs;
+    HashMap<i64, NonnullOwnPtr<AnimationSession>> m_animation_sessions;
+};
+```
+
+Located in `Services/ImageDecoder/ConnectionFromClient.h:22`
+
+#### DecodeResult
+
+Contains the result of image decoding:
+
+```cpp
+struct DecodeResult {
+    bool is_animated;
+    u32 loop_count;
+    u32 frame_count;
+    Gfx::FloatPoint scale;
+    Gfx::BitmapSequence bitmaps;
+    Vector<u32> durations;
+    Gfx::ColorSpace color_profile;
+    RefPtr<Gfx::ImageDecoder> decoder;  // For streaming
+    Core::AnonymousBuffer encoded_data;
+};
+```
+
+Located in `Services/ImageDecoder/ConnectionFromClient.h:31`
+
+#### AnimationSession
+
+Manages decoding of animated images:
+
+```cpp
+struct AnimationSession {
+    Core::AnonymousBuffer encoded_data;
+    RefPtr<Gfx::ImageDecoder> decoder;
+    u32 frame_count;
+};
+```
+
+Located in `Services/ImageDecoder/ConnectionFromClient.h:45`
+
+## Process lifecycle
+
+ImageDecoder processes have a short lifecycle:
+
+1. **Spawn**: Created when WebContent needs to decode an image
+2. **Decode**: Receives image data and returns bitmap
+3. **Terminate**: Process exits after decoding completes
+
+<Info>
+Each image gets a fresh ImageDecoder process for maximum security isolation.
+</Info>
+
+## Decoding pipeline
+
+### Static images
+
+For non-animated images:
+
+1. WebContent sends encoded image data via IPC
+2. ImageDecoder receives data in `AnonymousBuffer`
+3. Format detection determines decoder to use
+4. Image is decoded to bitmap
+5. Bitmap is returned to WebContent
+6. Process terminates
+
+### Animated images
+
+For animations (GIF, APNG, WebP):
+
+1. Create animation session
+2. Decode frames on-demand
+3. Stream frames back to WebContent
+4. Maintain decoder state across frames
+
+```cpp
+virtual void request_animation_frames(
+    i64 session_id,
+    u32 start_frame_index,
+    u32 count
+) override;
+```
+
+Located in `Services/ImageDecoder/ConnectionFromClient.h:60`
+
+## IPC protocol
+
+ImageDecoder uses a simple request-response protocol:
+
+### Decode image
+
+```cpp
+virtual void decode_image(
+    Core::AnonymousBuffer data,
+    Optional<Gfx::IntSize> ideal_size,
+    Optional<ByteString> mime_type,
+    i64 request_id
+) override;
+```
+
+Parameters:
+
+- `data` - Encoded image bytes in shared memory
+- `ideal_size` - Target size for decoding (optional)
+- `mime_type` - Image MIME type hint (optional)
+- `request_id` - Unique identifier for the request
+
+### Cancel decoding
+
+```cpp
+virtual void cancel_decoding(i64 request_id) override;
+```
+
+Allows WebContent to abort in-progress decoding operations.
+
+### Stop animation
+
+```cpp
+virtual void stop_animation_decode(i64 session_id) override;
+```
+
+Terminates an animation session and frees resources.
+
+## Background decoding
+
+Decoding runs on background threads to avoid blocking:
+
+```cpp
+using Job = Threading::BackgroundAction<DecodeResult>;
+using FrameDecodeResult = Vector<Gfx::ImageFrameDescriptor>;
+using FrameDecodeJob = Threading::BackgroundAction<FrameDecodeResult>;
+```
+
+Located in `Services/ImageDecoder/ConnectionFromClient.h:52`
+
+<Tip>
+Background threading ensures image decoding doesn't block the WebContent event loop.
+</Tip>
+
+## Security model
+
+ImageDecoder implements defense-in-depth security:
+
+### Process isolation
+
+- Fresh process per image
+- No shared state between images
+- Process terminates after decoding
+
+### Sandboxing
+
+- Minimal system call access via `pledge()`
+- No filesystem access via `unveil()`
+- Cannot spawn processes
+- Cannot access network
+- Runs as unprivileged user
+
+### Memory safety
+
+- Uses safe Ladybird APIs
+- Bounds checking on buffer access
+- Protected against buffer overflows
+- Automatic resource cleanup
+
+<Warning>
+Image parsing is a common attack vector. The strong sandboxing prevents exploits in decoders from compromising the browser.
+</Warning>
+
+## Color management
+
+ImageDecoder handles color profiles:
+
+- Extracts embedded ICC profiles
+- Reports color space information
+- Supports color conversion
+- Preserves high color depth when possible
+
+```cpp
+Gfx::ColorSpace color_profile;  // In DecodeResult
+```
+
+## Size optimization
+
+Images can be decoded at optimal sizes:
+
+```cpp
+Optional<Gfx::IntSize> ideal_size  // Target decode size
+```
+
+Benefits:
+
+- Reduced memory usage for thumbnails
+- Faster decoding for downscaled images
+- Progressive decoding for large images
+
+## Error handling
+
+ImageDecoder reports various error conditions:
+
+- **Invalid format**: Image data is corrupted or unsupported
+- **Out of memory**: Image is too large to decode
+- **Decode failure**: Error during format-specific decoding
+- **Truncated data**: Incomplete image data
+
+## Multi-client support
+
+ImageDecoder can handle multiple clients:
+
+```cpp
+virtual Messages::ImageDecoderServer::ConnectNewClientsResponse 
+    connect_new_clients(size_t count) override;
+```
+
+Allows spawning additional decoder instances for load balancing.
+
+## Configuration options
+
+| Option | Description |
+|--------|-------------|
+| `--wait-for-debugger` | Pause on startup for debugger attachment |
+| `--mach-server-name` | Mach server name (macOS only) |
+
+## Performance considerations
+
+- **Process creation overhead**: Spawning processes has cost, but security benefits outweigh it
+- **IPC overhead**: Shared memory buffers minimize data copying
+- **Background threads**: Prevents UI blocking during decoding
+- **Frame caching**: Decoded frames cached for animations
+
+## Integration with WebContent
+
+WebContent uses ImageDecoder through a plugin:
+
+```cpp
+ErrorOr<void> initialize_image_decoder(int image_decoder_socket) {
+    auto socket = TRY(Core::LocalSocket::adopt_fd(image_decoder_socket));
+    auto new_client = TRY(try_make_ref_counted<ImageDecoderClient::Client>(
+        make<IPC::Transport>(move(socket))
+    ));
+    Web::Platform::ImageCodecPlugin::install(
+        *new WebView::ImageCodecPlugin(move(new_client))
+    );
+    return {};
+}
+```
+
+Located in `Services/WebContent/main.cpp:288`
+
+## Animation support
+
+Animated images are handled specially:
+
+- **Loop count**: Number of times to repeat animation
+- **Frame durations**: Timing for each frame
+- **Frame count**: Total frames in animation
+- **Progressive loading**: Frames decoded as needed
+
+## Related services
+
+- **WebContent**: Primary client that requests image decoding
+- **RequestServer**: Fetches image data from network
+- **Browser**: Initiates the process hierarchy
